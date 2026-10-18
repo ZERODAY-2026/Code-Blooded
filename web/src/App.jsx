@@ -35,7 +35,7 @@ export default function App() {
       .catch(() => setApiHealthy(false));
   }, []);
 
-  // 2. Fetch datasets from GET /datasets. If it fails, leave empty/disabled.
+  // 2. Fetch datasets from GET /datasets. If it fails, provide schema preview.
   useEffect(() => {
     fetch('/datasets')
       .then(res => {
@@ -44,15 +44,22 @@ export default function App() {
       })
       .then(data => {
         const list = Array.isArray(data) ? data : (data.datasets || []);
-        setDatasets(list);
         if (list.length > 0) {
+          setDatasets(list);
           const firstId = list[0].id || list[0].dataset_id || list[0].name;
           if (firstId) setActiveDataset(firstId);
+        } else {
+          throw new Error('Empty dataset list');
         }
       })
       .catch(() => {
-        // Disabled and empty if GET /datasets fails
-        setDatasets([]);
+        // Fallback schema preview options when backend is offline
+        const previewDatasets = [
+          { id: 'owid', name: 'OWID Life Expectancy', badge: 'Preview' },
+          { id: 'tpch', name: 'TPC-H SF1 Benchmark', badge: 'Preview' }
+        ];
+        setDatasets(previewDatasets);
+        if (!activeDataset) setActiveDataset('owid');
       });
   }, []);
 
@@ -190,6 +197,7 @@ export default function App() {
               onAsk={handleAsk}
               loading={loading}
               apiHealthy={apiHealthy}
+              showArchetypes={Boolean(currentResponse)}
             />
 
             {/* Split Screen Workbench: Rendered AFTER a question is submitted, otherwise show SystemOverview */}

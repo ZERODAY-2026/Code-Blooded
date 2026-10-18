@@ -16,7 +16,8 @@ export default function QueryInput({
   setQuery,
   onAsk,
   loading,
-  apiHealthy
+  apiHealthy,
+  showArchetypes = false
 }) {
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -117,31 +118,33 @@ export default function QueryInput({
         </div>
       </form>
 
-      {/* Persona Question Chips (Always shown, even if API is down) */}
-      <div className="mt-5 pt-4 border-t border-[#ede2d2] flex items-center flex-wrap gap-2.5">
-        <span className="text-xs font-bold text-blue-950 flex items-center mr-1 font-mono">
-          <Sparkles className="h-3.5 w-3.5 mr-1.5 text-amber-500 shrink-0" aria-hidden="true" />
-          Persona Archetypes:
-        </span>
-        {EXAMPLE_QUESTIONS.map((questionText, idx) => {
-          const meta = QUESTION_META[idx] || { label: 'Example', color: 'text-slate-700 bg-slate-50 border-slate-200' };
-          return (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => setQuery(questionText)}
-              disabled={loading}
-              className="clay-pill px-3 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer flex items-center space-x-1.5"
-              aria-label={`Fill question: ${questionText}`}
-            >
-              <span className={`text-[10px] font-mono font-extrabold px-1.5 py-0.2 rounded border ${meta.color}`}>
-                {meta.label}
-              </span>
-              <span className="truncate max-w-[260px] sm:max-w-none">{questionText}</span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Persona Question Chips (Shown after submission to switch queries quickly without duplicating SystemOverview) */}
+      {showArchetypes && (
+        <div className="mt-5 pt-4 border-t border-[#ede2d2] flex items-center flex-wrap gap-2.5">
+          <span className="text-xs font-bold text-blue-950 flex items-center mr-1 font-mono">
+            <Sparkles className="h-3.5 w-3.5 mr-1.5 text-amber-500 shrink-0" aria-hidden="true" />
+            Persona Archetypes:
+          </span>
+          {EXAMPLE_QUESTIONS.map((questionText, idx) => {
+            const meta = QUESTION_META[idx] || { label: 'Example', color: 'text-slate-700 bg-slate-50 border-slate-200' };
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setQuery(questionText)}
+                disabled={loading}
+                className="clay-pill px-3 py-1.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer flex items-center space-x-1.5"
+                aria-label={`Fill question: ${questionText}`}
+              >
+                <span className={`text-[10px] font-mono font-extrabold px-1.5 py-0.2 rounded border ${meta.color}`}>
+                  {meta.label}
+                </span>
+                <span className="truncate max-w-[260px] sm:max-w-none">{questionText}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
