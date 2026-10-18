@@ -147,7 +147,7 @@ def enforce_limit(sql: str, max_limit: int = 200) -> str:
                 try:
                     current_limit = int(limit_exp.expression.name)
                     if current_limit > max_limit:
-                        parsed.set("limit", exp.Limit(this=parsed, expression=exp.Literal.number(max_limit)))
+                        parsed = parsed.limit(max_limit)
                         return parsed.sql(dialect="snowflake")
                 except Exception:
                     pass

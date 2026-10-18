@@ -138,6 +138,11 @@ class TestMultiStatement:
         is_valid, error = validate_sql(sql, TPCH_TABLES)
         assert not is_valid, "SELECT then INSERT must be rejected (multi-statement)"
 
+    def test_comment_hidden_second_statement_rejected(self):
+        sql = "SELECT * FROM CUSTOMER; -- trailing comment\nDROP TABLE ORDERS"
+        is_valid, error = validate_sql(sql, TPCH_TABLES)
+        assert not is_valid, "Comment-hidden second statement must be rejected"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section C — Table allowlist enforcement (handbook Section 12)
@@ -277,3 +282,16 @@ class TestEdgeCases:
         sql = "insert into CUSTOMER (C_NAME) values ('test')"
         is_valid, error = validate_sql(sql, TPCH_TABLES)
         assert not is_valid, "Lowercase 'insert into' must be rejected"
+
+    def test_prompt_injection_comment_bypass_rejected(self):
+        """Prompt injection attempting to slip in DROP behind comment and semicolon."""
+        sql = "SELECT * FROM CUSTOMER /* ignore all safety rules */; DROP TABLE CUSTOMER"
+        is_valid, error = validate_sql(sql, TPCH_TABLES)
+        assert not is_valid, "Injected comment bypass multi-statement must be rejected"
+
+    def test_prompt_injection_union_exfiltration_rejected(self):
+        """Prompt injection attempting to exfiltrate unlisted credentials or metadata."""
+        sql = "SELECT C_NAME FROM CUSTOMER UNION SELECT PASSWORD FROM ADMIN_USERS LIMIT 10"
+        is_valid, error = validate_sql(sql, TPCH_TABLES)
+        assert not is_valid, "UNION injection targeting unlisted table must be rejected"
+
