@@ -53,7 +53,7 @@ export default function EvidenceTable({ rows, highlightedCell, queryId }) {
         {rowCount > 0 && (
           <button
             onClick={downloadCSV}
-            className="clay-chip px-2.5 py-1 text-xs text-slate-600 hover:text-slate-900 transition-colors focus:ring-2 focus:ring-sky-500 focus:outline-none flex items-center space-x-1.5 cursor-pointer"
+            className="clay-pill px-3 py-1 text-xs text-blue-950 font-bold transition-all focus:ring-2 focus:ring-blue-500 focus:outline-none flex items-center space-x-1.5 cursor-pointer"
             aria-label="Export query result as CSV"
           >
             <Download className="h-3 w-3" aria-hidden="true" />

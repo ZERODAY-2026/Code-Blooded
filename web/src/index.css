@@ -4,102 +4,110 @@
 
 @layer base {
   body {
-    @apply antialiased min-h-screen text-slate-800 selection:bg-sky-200 selection:text-sky-900;
-    background-color: #f1f5f9;
+    @apply antialiased min-h-screen text-slate-800 selection:bg-blue-200 selection:text-blue-950;
+    /* Cream Soda ambient canvas */
+    background-color: #fbf6ec;
     background-image: 
-      radial-gradient(at 0% 0%, rgba(224, 242, 254, 0.8) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, rgba(237, 233, 254, 0.7) 0px, transparent 50%),
-      radial-gradient(at 50% 100%, rgba(240, 249, 255, 0.9) 0px, transparent 60%);
+      radial-gradient(at 0% 0%, rgba(219, 234, 254, 0.85) 0px, transparent 40%), /* Soft blueberry fizz */
+      radial-gradient(at 100% 0%, rgba(254, 243, 199, 0.85) 0px, transparent 40%), /* Warm cream soda vanilla glow */
+      radial-gradient(at 50% 100%, rgba(253, 246, 235, 0.95) 0px, transparent 65%);
     background-attachment: fixed;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
-/* ── Tactile "Soft Tech" Claymorphism Tokens ────────────────────────────── */
+/* ── Blueberry & Cream Soda Claymorphism Tokens ───────────────────────── */
 @layer components {
-  /* Elevated 3D Clay Container Card */
+  /* Elevated Cream Soda Clay Card */
   .clay-card {
-    background: rgba(255, 255, 255, 0.94);
+    background: linear-gradient(165deg, #ffffff 0%, #fffdfa 100%);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 1.25rem;
+    border: 1.5px solid rgba(238, 228, 212, 0.9);
+    border-radius: 1.5rem;
     box-shadow: 
-      0 16px 32px -6px rgba(15, 23, 42, 0.07),
-      0 4px 12px -2px rgba(15, 23, 42, 0.03),
-      inset 0 2px 3px rgba(255, 255, 255, 1),
-      inset 0 -2px 4px rgba(148, 163, 184, 0.12);
+      0 20px 40px -10px rgba(30, 58, 138, 0.09),  /* Deep Blueberry drop shadow */
+      0 6px 16px -2px rgba(217, 119, 6, 0.05),    /* Warm Cream Soda shadow */
+      inset 0 3px 4px rgba(255, 255, 255, 1),      /* Glossy light reflection */
+      inset 0 -3px 5px rgba(220, 204, 180, 0.35);  /* Vanilla Cream clay bevel */
     transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  /* Tactile Clay Button (Primary) */
+  /* Blueberry Clay Primary Button */
   .clay-btn-primary {
-    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: linear-gradient(135deg, #2563eb 0%, #1e40af 50%, #1e3a8a 100%); /* Rich blueberry */
+    border: 1.5px solid rgba(255, 255, 255, 0.35);
+    color: #ffffff;
     box-shadow: 
-      0 8px 16px -2px rgba(2, 132, 199, 0.35),
-      inset 0 2px 2px rgba(255, 255, 255, 0.45),
-      inset 0 -2px 3px rgba(3, 105, 161, 0.4);
-    border-radius: 0.75rem;
+      0 10px 24px -3px rgba(37, 99, 235, 0.42),
+      inset 0 2px 3px rgba(255, 255, 255, 0.5),
+      inset 0 -3px 4px rgba(15, 23, 42, 0.4);
+    border-radius: 0.875rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
     transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .clay-btn-primary:hover:not(:disabled) {
-    transform: translateY(-1px);
+    transform: translateY(-1.5px);
+    background: linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%);
     box-shadow: 
-      0 10px 22px -2px rgba(2, 132, 199, 0.45),
-      inset 0 2px 2px rgba(255, 255, 255, 0.55),
-      inset 0 -2px 3px rgba(3, 105, 161, 0.4);
+      0 14px 28px -3px rgba(37, 99, 235, 0.52),
+      inset 0 2px 3px rgba(255, 255, 255, 0.6),
+      inset 0 -3px 4px rgba(15, 23, 42, 0.4);
   }
   .clay-btn-primary:active:not(:disabled) {
     transform: translateY(1px) scale(0.98);
     box-shadow: 
-      0 2px 6px rgba(2, 132, 199, 0.3),
-      inset 0 1px 1px rgba(255, 255, 255, 0.3);
+      0 4px 10px rgba(37, 99, 235, 0.32),
+      inset 0 1px 2px rgba(255, 255, 255, 0.3);
   }
 
-  /* Interactive Tactile Pill Chip */
+  /* Cream Soda Tactile Pill Chip */
   .clay-pill {
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(226, 232, 240, 0.9);
+    background: linear-gradient(145deg, #ffffff 0%, #fffcf5 100%);
+    border: 1.5px solid rgba(235, 221, 202, 0.95);
     border-radius: 9999px;
+    color: #1e3a8a; /* Blueberry text */
     box-shadow: 
-      0 3px 8px rgba(15, 23, 42, 0.04),
-      inset 0 1.5px 2px rgba(255, 255, 255, 1),
-      inset 0 -1px 2px rgba(148, 163, 184, 0.15);
+      0 4px 10px rgba(30, 58, 138, 0.05),
+      0 1px 3px rgba(217, 119, 6, 0.04),
+      inset 0 2px 2px rgba(255, 255, 255, 1),
+      inset 0 -1.5px 2px rgba(224, 207, 182, 0.4);
     transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .clay-pill:hover:not(:disabled) {
-    transform: translateY(-1px);
+    transform: translateY(-1.5px);
     background: #ffffff;
-    border-color: #7dd3fc;
-    color: #0369a1;
+    border-color: #93c5fd; /* Soft blueberry ring */
+    color: #1d4ed8;
     box-shadow: 
-      0 6px 14px rgba(15, 23, 42, 0.08),
-      inset 0 1.5px 2px rgba(255, 255, 255, 1);
+      0 8px 18px rgba(37, 99, 235, 0.12),
+      inset 0 2px 2px rgba(255, 255, 255, 1);
   }
   .clay-pill:active:not(:disabled) {
     transform: translateY(0.5px) scale(0.98);
   }
 
-  /* Recessed Clay Input */
+  /* Cream Soda Recessed Input */
   .clay-input {
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(203, 213, 225, 0.85);
-    border-radius: 1rem;
+    background: #ffffff;
+    border: 1.5px solid rgba(226, 215, 198, 0.95);
+    border-radius: 1.125rem;
     box-shadow: 
-      inset 0 2px 4px rgba(15, 23, 42, 0.04),
-      inset 0 1px 2px rgba(15, 23, 42, 0.03),
+      inset 0 2px 4px rgba(30, 58, 138, 0.05),
+      inset 0 1px 2px rgba(217, 119, 6, 0.03),
       0 1px 2px rgba(255, 255, 255, 0.9);
   }
 
   /* Interactive Tab Pill */
   .clay-tab-active {
     background: #ffffff;
-    color: #0f172a;
+    color: #1e3a8a;
+    border: 1.5px solid #ebdcc8;
     box-shadow: 
-      0 4px 12px rgba(15, 23, 42, 0.06),
-      inset 0 1.5px 2px rgba(255, 255, 255, 1),
-      inset 0 -1px 2px rgba(148, 163, 184, 0.1);
+      0 4px 12px rgba(30, 58, 138, 0.09),
+      inset 0 2px 2px rgba(255, 255, 255, 1),
+      inset 0 -1.5px 2px rgba(224, 206, 178, 0.35);
   }
 }
 
@@ -109,7 +117,7 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(241, 245, 249, 0.8);
+  background: rgba(248, 244, 236, 0.8);
 }
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
@@ -117,4 +125,13 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }

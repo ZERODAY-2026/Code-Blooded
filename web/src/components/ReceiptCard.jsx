@@ -57,30 +57,30 @@ export default function ReceiptCard({ response, highlightedCell }) {
 
   return (
     <div className="clay-card overflow-hidden">
-      {/* Header Bar */}
-      <div className="bg-slate-900 text-white px-6 py-3.5 flex flex-wrap items-center justify-between gap-2 shadow-inner">
+      {/* Header Bar: Midnight Blueberry */}
+      <div className="bg-[#0b1736] text-white px-6 py-3.5 flex flex-wrap items-center justify-between gap-2 shadow-inner">
         <div className="flex items-center space-x-2">
-          <div className="h-2.5 w-2.5 rounded-full bg-sky-400 animate-pulse"></div>
-          <h3 className="text-xs font-bold uppercase tracking-wider font-mono">
+          <div className="h-2.5 w-2.5 rounded-full bg-blue-400 animate-pulse"></div>
+          <h3 className="text-xs font-bold uppercase tracking-wider font-mono text-blue-100">
             Execution Receipt & Audit Log
           </h3>
-          <span className="text-[10px] font-mono bg-sky-950 text-sky-300 border border-sky-800 px-2 py-0.5 rounded-full shadow-xs">
+          <span className="text-[10px] font-mono bg-blue-950 text-blue-200 border border-blue-800 px-2 py-0.5 rounded-full shadow-xs">
             AST Verified
           </span>
         </div>
 
-        <div className="flex items-center space-x-2 text-xs font-mono text-slate-400">
+        <div className="flex items-center space-x-2 text-xs font-mono text-blue-200">
           <span>Role: DM_READER</span>
           <span>•</span>
-          <span className="text-emerald-400 flex items-center">
+          <span className="text-emerald-300 flex items-center">
             <ShieldCheck className="h-3.5 w-3.5 mr-1" />
             SELECT only
           </span>
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-slate-100/70 border-b border-slate-200/80 px-4 pt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Receipt details tabs">
+      {/* Tab Navigation: Warm Cream Soda Strip */}
+      <div className="bg-[#fbf7ee] border-b border-[#eee3d1] px-4 pt-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Receipt details tabs">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -92,17 +92,17 @@ export default function ReceiptCard({ response, highlightedCell }) {
               aria-controls={`receipt-panel-${tab.id}`}
               id={`receipt-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
-              className={`inline-flex items-center space-x-1.5 px-3.5 py-2 text-xs font-medium rounded-t-xl transition-all focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer ${
+              className={`inline-flex items-center space-x-1.5 px-3.5 py-2 text-xs font-medium rounded-t-xl transition-all focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer ${
                 isActive
-                  ? 'bg-white text-slate-900 font-bold shadow-xs border-t border-l border-r border-slate-200/90 -mb-px'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+                  ? 'bg-white text-blue-950 font-bold shadow-xs border-t border-l border-r border-[#eee3d1] -mb-px'
+                  : 'text-slate-600 hover:text-blue-950 hover:bg-white/50'
               }`}
             >
-              <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-sky-600' : 'text-slate-400'}`} aria-hidden="true" />
+              <Icon className={`h-3.5 w-3.5 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} aria-hidden="true" />
               <span>{tab.label}</span>
               {tab.count !== undefined && tab.count > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  isActive ? 'bg-sky-100 text-sky-800' : 'bg-slate-200 text-slate-700'
+                  isActive ? 'bg-blue-100 text-blue-800' : 'bg-slate-200 text-slate-700'
                 }`}>
                   {tab.count}
                 </span>
@@ -117,13 +117,13 @@ export default function ReceiptCard({ response, highlightedCell }) {
         {/* 1. "How I got this" Panel */}
         {activeTab === 'how' && (
           <div id="receipt-panel-how" role="tabpanel" aria-labelledby="receipt-tab-how" className="space-y-3">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 font-mono">
+            <h4 className="text-xs font-bold uppercase tracking-wider text-blue-950 font-mono">
               Step-by-Step SQL Derivation (explanation[]):
             </h4>
             {explanation.length === 0 ? (
               <p className="text-xs text-slate-500 italic">No explanation steps returned by the API.</p>
             ) : (
-              <ol className="list-decimal list-inside space-y-2 text-xs font-mono text-slate-800 bg-slate-50/80 p-4 rounded-xl border border-slate-200/80 leading-relaxed shadow-xs">
+              <ol className="list-decimal list-inside space-y-2 text-xs font-mono text-slate-800 bg-[#fbf7ee] p-4 rounded-xl border border-[#eee3d1] leading-relaxed shadow-xs">
                 {explanation.map((step, idx) => (
                   <li key={idx} className="pl-1">
                     <span className="font-sans text-slate-800">{step}</span>
@@ -138,14 +138,14 @@ export default function ReceiptCard({ response, highlightedCell }) {
         {activeTab === 'sql' && (
           <div id="receipt-panel-sql" role="tabpanel" aria-labelledby="receipt-tab-sql" className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 font-mono">
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-950 font-mono">
                 Verified SQL Query
               </span>
               {sql && (
                 <button
                   type="button"
                   onClick={handleCopySql}
-                  className="clay-chip px-3 py-1 text-xs text-slate-700 hover:text-slate-900 focus:ring-2 focus:ring-sky-500 focus:outline-none flex items-center space-x-1.5 cursor-pointer"
+                  className="clay-pill px-3 py-1 text-xs text-blue-950 hover:text-blue-800 focus:ring-2 focus:ring-blue-500 focus:outline-none flex items-center space-x-1.5 cursor-pointer font-bold"
                   aria-label="Copy SQL query"
                 >
                   {copiedSql ? (
@@ -155,7 +155,7 @@ export default function ReceiptCard({ response, highlightedCell }) {
                     </>
                   ) : (
                     <>
-                      <Copy className="h-3.5 w-3.5 text-slate-500" aria-hidden="true" />
+                      <Copy className="h-3.5 w-3.5 text-blue-600" aria-hidden="true" />
                       <span>Copy SQL</span>
                     </>
                   )}
@@ -164,7 +164,7 @@ export default function ReceiptCard({ response, highlightedCell }) {
             </div>
 
             {sql ? (
-              <pre className="bg-slate-950 text-slate-100 p-4 rounded-xl font-mono text-xs overflow-x-auto leading-relaxed border border-slate-800 shadow-inner">
+              <pre className="bg-[#0b1736] text-blue-50 p-4 rounded-xl font-mono text-xs overflow-x-auto leading-relaxed border border-blue-900 shadow-inner">
                 <code>{sql}</code>
               </pre>
             ) : (
@@ -192,18 +192,18 @@ export default function ReceiptCard({ response, highlightedCell }) {
         {activeTab === 'query_id' && (
           <div id="receipt-panel-query_id" role="tabpanel" aria-labelledby="receipt-tab-query_id" className="space-y-4 font-mono text-xs">
             <div>
-              <span className="text-slate-500 block text-[11px] uppercase font-bold mb-1.5">
+              <span className="text-blue-950 block text-[11px] uppercase font-bold mb-1.5">
                 Snowflake Query ID (query_id)
               </span>
               {queryId ? (
                 <div className="flex items-center space-x-2">
-                  <span className="p-2.5 bg-slate-100/90 border border-slate-300 rounded-lg font-bold text-slate-900 select-all max-w-full truncate shadow-xs">
+                  <span className="p-2.5 bg-[#fbf7ee] border border-[#eee3d1] rounded-lg font-bold text-blue-950 select-all max-w-full truncate shadow-xs">
                     {queryId}
                   </span>
                   <button
                     type="button"
                     onClick={handleCopyQueryId}
-                    className="clay-chip p-2 text-slate-600 hover:text-slate-900 focus:ring-2 focus:ring-sky-500 focus:outline-none cursor-pointer"
+                    className="clay-pill p-2 text-blue-900 hover:text-blue-950 focus:ring-2 focus:ring-blue-500 focus:outline-none cursor-pointer"
                     aria-label="Copy Query ID"
                     title="Copy Query ID"
                   >
@@ -216,15 +216,15 @@ export default function ReceiptCard({ response, highlightedCell }) {
             </div>
 
             {snowsightUrl && (
-              <div className="pt-3 border-t border-slate-100">
-                <span className="text-slate-500 block text-[11px] uppercase font-bold mb-1.5">
+              <div className="pt-3 border-t border-[#eee3d1]">
+                <span className="text-blue-950 block text-[11px] uppercase font-bold mb-1.5">
                   Snowsight Web Console Link
                 </span>
                 <a
                   href={snowsightUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="clay-chip inline-flex items-center space-x-1.5 px-3 py-1.5 text-sky-700 hover:text-sky-900 font-bold focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                  className="clay-pill inline-flex items-center space-x-1.5 px-3 py-1.5 text-blue-700 hover:text-blue-900 font-bold focus:ring-2 focus:ring-blue-500 focus:outline-none"
                 >
                   <span>Open Query in Snowflake Snowsight</span>
                   <ExternalLink className="h-3.5 w-3.5 ml-1" aria-hidden="true" />
@@ -237,7 +237,7 @@ export default function ReceiptCard({ response, highlightedCell }) {
         {/* 5. "Flags" Panel */}
         {activeTab === 'flags' && (
           <div id="receipt-panel-flags" role="tabpanel" aria-labelledby="receipt-tab-flags" className="space-y-3">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 font-mono">
+            <span className="text-xs font-bold uppercase tracking-wider text-blue-950 font-mono">
               Flags & Verification Warnings (flags[])
             </span>
             {flags.length === 0 ? (
@@ -261,10 +261,10 @@ export default function ReceiptCard({ response, highlightedCell }) {
         {/* 6. "Model calls" Panel */}
         {activeTab === 'model_calls' && (
           <div id="receipt-panel-model_calls" role="tabpanel" aria-labelledby="receipt-tab-model_calls" className="space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eee3d1] pb-3">
               <div>
                 <span className="text-xs text-slate-400 uppercase font-mono block">Model Name</span>
-                <span className="text-sm font-bold text-slate-800 font-mono">
+                <span className="text-sm font-bold text-blue-950 font-mono">
                   {modelName || 'Not specified by API'}
                 </span>
                 {modelProvider && (
@@ -273,7 +273,7 @@ export default function ReceiptCard({ response, highlightedCell }) {
               </div>
 
               {response.timings_ms && (
-                <div className="text-xs font-mono text-slate-500 flex items-center space-x-2 bg-slate-50 px-3 py-1 rounded-full border border-slate-200/60 shadow-xs">
+                <div className="text-xs font-mono text-slate-600 flex items-center space-x-2 bg-[#fbf7ee] px-3 py-1 rounded-full border border-[#eee3d1] shadow-xs">
                   <Clock className="h-3.5 w-3.5 text-slate-400" />
                   <span>Total Latency: {response.timings_ms.total || 0}ms</span>
                 </div>
@@ -281,34 +281,34 @@ export default function ReceiptCard({ response, highlightedCell }) {
             </div>
 
             <div className="space-y-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500 font-mono block">
+              <span className="text-xs font-bold uppercase tracking-wider text-blue-950 font-mono block">
                 Gemma Model Call Trace (gemma_calls[]):
               </span>
 
               {gemmaCalls.length === 0 ? (
                 <p className="text-xs text-slate-500 italic">No model call trace provided by API.</p>
               ) : (
-                <div className="overflow-x-auto border border-slate-200/80 rounded-xl shadow-xs">
+                <div className="overflow-x-auto border border-[#eee3d1] rounded-xl shadow-xs">
                   <table className="w-full text-left text-xs font-mono border-collapse">
                     <thead>
-                      <tr className="bg-slate-100/80 text-slate-600 border-b border-slate-200">
+                      <tr className="bg-[#fbf7ee] text-blue-950 border-b border-[#eee3d1]">
                         <th className="p-3">Call Role</th>
                         <th className="p-3">Latency (ms)</th>
                         <th className="p-3">Valid First Try?</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-800">
+                    <tbody className="divide-y divide-[#eee3d1] text-slate-800">
                       {gemmaCalls.map((call, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/80">
-                          <td className="p-3 font-bold text-slate-900 capitalize">{call.role}</td>
+                        <tr key={idx} className="hover:bg-white/60">
+                          <td className="p-3 font-bold text-blue-950 capitalize">{call.role}</td>
                           <td className="p-3">{call.ms} ms</td>
                           <td className="p-3">
                             {call.valid_first_try ? (
-                              <span className="clay-chip px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-300">
+                              <span className="clay-pill px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 bg-emerald-50 border-emerald-300">
                                 Yes
                               </span>
                             ) : (
-                              <span className="clay-chip px-2.5 py-0.5 text-[11px] font-bold text-amber-900 bg-amber-50 border border-amber-300">
+                              <span className="clay-pill px-2.5 py-0.5 text-[11px] font-bold text-amber-950 bg-amber-50 border-amber-300">
                                 No (Repaired)
                               </span>
                             )}

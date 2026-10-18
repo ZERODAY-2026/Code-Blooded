@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { AlertCircle, AlertTriangle } from 'lucide-react';
 import Header from './components/Header';
 import QueryInput from './components/QueryInput';
 import AnswerCard from './components/AnswerCard';
 import ReceiptCard from './components/ReceiptCard';
 import EvidenceTable from './components/EvidenceTable';
 import EvalView from './components/EvalView';
-import { SUGGESTED_QUERIES, SAMPLE_RESPONSES } from './mockData';
+import SystemOverview from './components/SystemOverview';
+import { SAMPLE_RESPONSES } from './mockData';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('workbench'); // 'workbench' | 'eval'
@@ -16,12 +18,24 @@ export default function App() {
   const [sessionId] = useState(() => 'sess_' + Math.random().toString(36).substring(2, 10));
   const [highlightedCell, setHighlightedCell] = useState(null); // { rowIndex, column }
   const [lastSubmittedQuestion, setLastSubmittedQuestion] = useState('');
+  const [apiHealthy, setApiHealthy] = useState(null); // null = checking, true = healthy, false = offline
 
   // Initial state shows only the question box and chips; NO answer card until a question is submitted.
   const [currentResponse, setCurrentResponse] = useState(null);
   const [evalSummary, setEvalSummary] = useState(null);
 
-  // 1. Fetch datasets from GET /datasets. If it fails, leave empty/disabled.
+  // 1. Check API health on load (GET /health)
+  useEffect(() => {
+    fetch('/health')
+      .then(res => {
+        if (!res.ok) throw new Error('Health check failed');
+        return res.json();
+      })
+      .then(() => setApiHealthy(true))
+      .catch(() => setApiHealthy(false));
+  }, []);
+
+  // 2. Fetch datasets from GET /datasets. If it fails, leave empty/disabled.
   useEffect(() => {
     fetch('/datasets')
       .then(res => {
@@ -37,12 +51,12 @@ export default function App() {
         }
       })
       .catch(() => {
-        // Empty/disabled if GET /datasets fails
+        // Disabled and empty if GET /datasets fails
         setDatasets([]);
       });
   }, []);
 
-  // 2. Fetch evaluation summary from GET /eval-summary
+  // 3. Fetch evaluation summary from GET /eval-summary
   useEffect(() => {
     fetch('/eval-summary')
       .then(res => {
@@ -55,7 +69,7 @@ export default function App() {
       });
   }, []);
 
-  // 3. Handle Dataset Switch (POST /switch-dataset)
+  // 4. Handle Dataset Switch (POST /switch-dataset)
   const handleDatasetChange = async (newDatasetId) => {
     setActiveDataset(newDatasetId);
     try {
@@ -68,11 +82,11 @@ export default function App() {
         })
       });
     } catch {
-      // Handled gracefully in offline mode
+      // Graceful offline handling
     }
   };
 
-  // 4. Handle Ask Question (POST /ask)
+  // 5. Handle Ask Question (POST /ask)
   const handleAsk = async (questionToAsk) => {
     const q = questionToAsk || query;
     if (!q) return;
@@ -99,10 +113,10 @@ export default function App() {
         const errData = await response.json().catch(() => ({}));
         setCurrentResponse({
           status: 'error',
-          answer: errData.detail || `Server returned status ${response.status}: ${response.statusText}`,
+          answer: errData.detail || `Server returned error (${response.status}): ${response.statusText}`,
           sql: null,
           evidence: [],
-          explanation: [],
+          explanation: [`Request failed with status ${response.status}`],
           rows: null,
           retries: [],
           flags: [`HTTP ${response.status}`],
@@ -117,15 +131,16 @@ export default function App() {
       if (useMock && SAMPLE_RESPONSES[q]) {
         setCurrentResponse(SAMPLE_RESPONSES[q]);
       } else {
+        // Plain error state card — never a blank screen
         setCurrentResponse({
           status: 'error',
-          answer: 'Unable to reach backend service at POST /ask. Ensure FastAPI server is running on port 8000.',
+          answer: "Unable to reach the DataMind API service at POST /ask. Start the backend server on port 8000 (see README).",
           sql: null,
           evidence: [],
-          explanation: ['Connection refused on localhost:8000'],
+          explanation: ["Connection failed on http://localhost:8000/ask"],
           rows: null,
           retries: [],
-          flags: ['Backend Offline'],
+          flags: ["Backend Connection Error"],
           confidence: null,
           model: null,
           timings_ms: null
@@ -136,10 +151,6 @@ export default function App() {
     }
   };
 
-  const currentSuggested = import.meta.env.VITE_USE_MOCKS === 'true'
-    ? (SUGGESTED_QUERIES[activeDataset] || SUGGESTED_QUERIES.owid || [])
-    : [];
-
   const hasRows = currentResponse?.rows?.columns && currentResponse.rows.columns.length > 0;
 
   return (
@@ -148,6 +159,14 @@ export default function App() {
       {import.meta.env.VITE_USE_MOCKS === 'true' && (
         <div className="bg-amber-400 text-amber-950 font-bold text-xs py-1.5 px-4 text-center font-mono tracking-wide border-b border-amber-500 shadow-2xs">
           MOCK DATA — not from Snowflake or Gemma
+        </div>
+      )}
+
+      {/* Persistent Offline Notice: When GET /health fails */}
+      {apiHealthy === false && (
+        <div className="bg-rose-50 border-b border-rose-200 px-4 py-2 text-center text-xs text-rose-900 font-medium flex items-center justify-center space-x-2 shadow-2xs font-mono">
+          <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" aria-hidden="true" />
+          <span><strong>API Offline:</strong> Can't reach the DataMind API at <code>http://localhost:8000/health</code>. Start the backend with <code>python run.py</code> (see README).</span>
         </div>
       )}
 
@@ -170,11 +189,11 @@ export default function App() {
               setQuery={setQuery}
               onAsk={handleAsk}
               loading={loading}
-              suggestedQueries={currentSuggested}
+              apiHealthy={apiHealthy}
             />
 
-            {/* Split Screen Workbench: Only rendered AFTER a question is submitted */}
-            {currentResponse && (
+            {/* Split Screen Workbench: Rendered AFTER a question is submitted, otherwise show SystemOverview */}
+            {currentResponse ? (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 {/* Left Column: Grounded Answer Card + 6-Tab Execution Receipt */}
                 <div className={hasRows ? "lg:col-span-7 space-y-6" : "lg:col-span-12 space-y-6"}>
@@ -201,6 +220,17 @@ export default function App() {
                   </div>
                 )}
               </div>
+            ) : (
+              <SystemOverview
+                onSelectQuestion={(selectedQuery) => {
+                  setQuery(selectedQuery);
+                  const el = document.getElementById('user-query-input');
+                  if (el) {
+                    el.focus();
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }
+                }}
+              />
             )}
           </div>
         ) : (
@@ -208,7 +238,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Footer: Clean team attribution without hardcoded claims */}
+      {/* Footer */}
       <footer className="border-t border-slate-200/80 bg-white/70 backdrop-blur-sm py-4 mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-2 font-mono">
           <div>

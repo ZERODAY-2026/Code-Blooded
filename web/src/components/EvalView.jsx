@@ -16,7 +16,7 @@ export default function EvalView({ evalSummary }) {
         </p>
         <div className="pt-2">
           <a
-            href="https://github.com/ZERODAY-2026/Code-Blooded#13-evaluation-benchmark--correctness-cap"
+            href="https://github.com/ZERODAY-2026/Code-Blooded#13-evaluation-harness-eval"
             target="_blank"
             rel="noreferrer"
             className="clay-pill inline-flex items-center space-x-1.5 px-4 py-2 text-xs font-bold text-sky-700 hover:text-sky-900"
