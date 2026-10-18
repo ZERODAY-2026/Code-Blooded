@@ -141,12 +141,16 @@ def _validate_and_sanitize(
             cte_names.add(alias.lower())
 
     referenced_tables: Set[str] = set()
+    disallowed: Set[str] = set()
     for table_node in statement.find_all(exp.Table):
         table_name = table_node.name
+        schema_name = table_node.db
         if table_name and table_name.lower() not in cte_names:
+            if schema_name and schema_name.lower() not in {"owid", "tpch_sf1", "public", ""}:
+                disallowed.add(f"{schema_name}.{table_name}")
             referenced_tables.add(table_name.lower())
 
-    disallowed = referenced_tables - allowed_lower
+    disallowed.update(referenced_tables - allowed_lower)
     if disallowed:
         raise SQLValidationError(
             f"Tables not in allowlist: {sorted(disallowed)}. "

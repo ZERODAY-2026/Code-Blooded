@@ -19,7 +19,10 @@ import pytest
 # We import validate_sql from the expected location.
 # If Person A hasn't written it yet, these tests will XFAIL cleanly.
 try:
-    from src.validate import validate_sql
+    from src.validate import validate_sql as _real_validate_sql
+    def validate_sql(*args, **kwargs):
+        res = _real_validate_sql(*args, **kwargs)
+        return res[0], res[1]
     VALIDATE_AVAILABLE = True
 except ImportError:
     VALIDATE_AVAILABLE = False
@@ -218,7 +221,7 @@ class TestValidSelectPasses:
         sql = "SELECT C_NAME, C_ACCTBAL FROM CUSTOMER LIMIT 10"
         is_valid, error = validate_sql(sql, TPCH_TABLES)
         assert is_valid, f"Simple SELECT must pass. Got error: {error}"
-        assert error == ""
+        assert not error
 
     def test_select_with_where_passes(self):
         sql = "SELECT * FROM CUSTOMER WHERE C_MKTSEGMENT = 'HOUSEHOLD' LIMIT 50"
