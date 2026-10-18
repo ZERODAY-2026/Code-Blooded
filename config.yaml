@@ -1,0 +1,59 @@
+# DataMind Receipts — Single source of truth for all runtime config.
+# NEVER hardcode model names, temperatures, or limits in Python files.
+# All values here are referenced by name in code.
+
+# ── LLM Provider ─────────────────────────────────────────────────────────────
+provider: api          # "api" = Google AI API | "ollama" = local Ollama
+model: gemma-4-26b-a4b-it
+
+temperatures:
+  sql: 0.1             # SQL generation — low for determinism
+  repair: 0.1          # SQL repair after Snowflake error — same
+  prose: 0.2           # Prose explanation — slight creativity ok
+
+# ── Pipeline limits ──────────────────────────────────────────────────────────
+rows_to_gemma: 50      # Max rows passed to Gemma for prose writing
+max_retries: 2         # Max SQL repair attempts before returning error status
+query_timeout_s: 30    # Snowflake query timeout in seconds
+enforce_limit: 200     # LIMIT appended/enforced on every SELECT
+
+# ── SQL safety ───────────────────────────────────────────────────────────────
+# Blocked statement types (sqlglot parse-based, not regex)
+blocked_statements:
+  - INSERT
+  - UPDATE
+  - DELETE
+  - DROP
+  - ALTER
+  - TRUNCATE
+  - MERGE
+  - COPY
+  - CALL
+  - GRANT
+  - REVOKE
+  - CREATE
+
+# ── Dataset: OWID (default active) ──────────────────────────────────────────
+active_dataset: owid
+
+datasets:
+  owid:
+    database: DATAMIND
+    schema: OWID
+    config_file: datasets/owid.yaml
+
+  tpch:
+    database: SNOWFLAKE_SAMPLE_DATA
+    schema: TPCH_SF1
+    config_file: datasets/tpch.yaml
+
+# ── Caching ──────────────────────────────────────────────────────────────────
+cache_llm_responses: false   # Always false — no cached results in demo
+
+# ── Eval ─────────────────────────────────────────────────────────────────────
+eval:
+  questions_file: eval/questions.csv
+  targets:
+    single_table: 0.90   # ≥90% accuracy
+    join: 0.75           # ≥75%
+    held_out: 0.70       # ≥70%

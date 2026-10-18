@@ -1,0 +1,17 @@
+# Core Python
+google-genai==2.31.0
+snowflake-connector-python==5.0.0
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+python-dotenv==1.0.1
+pyyaml==6.0.2
+sqlglot==25.34.0
+
+# Eval & testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1
+
+# Frontend build (Node handles this separately via web/package.json)
+# React + Vite + Tailwind — see web/
