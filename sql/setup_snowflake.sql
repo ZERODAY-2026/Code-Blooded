@@ -6,13 +6,21 @@
 
 USE ROLE ACCOUNTADMIN;
 
--- 1. Create Data Warehouse (standard extra small for low compute credit usage)
+-- 1. Create Data Warehouse & Resource Monitor (Handbook Section 10 Specification)
 CREATE WAREHOUSE IF NOT EXISTS DM_WH
   WITH WAREHOUSE_SIZE = 'XSMALL'
   AUTO_SUSPEND = 60
   AUTO_RESUME = TRUE
   INITIALLY_SUSPENDED = TRUE
+  STATEMENT_TIMEOUT_IN_SECONDS = 30
   COMMENT = 'DataMind query engine warehouse';
+
+CREATE RESOURCE MONITOR IF NOT EXISTS DM_RM
+  WITH CREDIT_QUOTA = 5
+  TRIGGERS ON 80 PERCENT DO NOTIFY
+           ON 100 PERCENT DO SUSPEND;
+
+ALTER WAREHOUSE DM_WH SET RESOURCE_MONITOR = DM_RM;
 
 -- 2. Create Target Database & Schema for OWID Indicators
 CREATE DATABASE IF NOT EXISTS DATAMIND

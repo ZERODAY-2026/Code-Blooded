@@ -192,6 +192,19 @@ class TestTableAllowlist:
         is_valid, error = validate_sql(sql, TPCH_TABLES)
         assert is_valid, f"Fully qualified valid table must pass. Got: {error}"
 
+    def test_lowercase_unquoted_fully_qualified_passes(self):
+        """Case-insensitive lowercase qualification must pass."""
+        sql = "SELECT * FROM snowflake_sample_data.tpch_sf1.customer LIMIT 10"
+        is_valid, error = validate_sql(sql, TPCH_TABLES)
+        assert is_valid, f"Lowercase unquoted qualification must pass. Got: {error}"
+
+    def test_double_quoted_unauthorized_schema_rejected(self):
+        """Double-quoted unauthorized schema must be rejected."""
+        sql = 'SELECT * FROM "OTHER_SCHEMA"."CUSTOMER" LIMIT 10'
+        is_valid, error = validate_sql(sql, TPCH_TABLES)
+        assert not is_valid, "Double-quoted unauthorized schema must be rejected"
+
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

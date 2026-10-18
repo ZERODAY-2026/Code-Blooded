@@ -16,7 +16,6 @@ build/
 
 # Node / React
 node_modules/
-web/dist/
 web/.vite/
 *.local
 

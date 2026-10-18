@@ -13,10 +13,10 @@ Our World in Data (OWID) indicators provide historical socio-economic, demograph
 ### Table Inventory & Indicator Attribution
 | Table Name | Description | Upstream Source & Attribution | Licence |
 | :--- | :--- | :--- | :--- |
-| `DATAMIND.OWID.life_expectancy` | Life expectancy at birth across nations and years | Our World in Data — [TODO: Upstream download URL & dataset commit SHA from Person A] | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| `DATAMIND.OWID.gdp_per_capita` | GDP per capita in constant international dollars (planned) | Our World in Data / World Bank | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| `DATAMIND.OWID.co2` | Annual CO2 emissions per capita (planned) | Our World in Data / Global Carbon Budget | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| `DATAMIND.OWID.population` | National total population figures (planned) | Our World in Data / UN Population Division | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `DATAMIND.OWID.life_expectancy` | Life expectancy at birth across nations and years | Our World in Data — [TODO: Upstream download URL & dataset commit SHA from Person A] | [TODO: Confirm indicator licence & upstream terms from indicator page] |
+| `DATAMIND.OWID.gdp_per_capita` | GDP per capita in constant international dollars (planned) | Our World in Data / World Bank | [TODO: Confirm indicator licence] |
+| `DATAMIND.OWID.co2` | Annual CO2 emissions per capita (planned) | Our World in Data / Global Carbon Budget | [TODO: Confirm indicator licence] |
+| `DATAMIND.OWID.population` | National total population figures (planned) | Our World in Data / UN Population Division | [TODO: Confirm indicator licence] |
 
 ### Data Preparation & Ingestion Steps
 1. **Raw Ingestion**: Data fetched via ingestion scripts using clean ISO 3-letter country codes (`code`).

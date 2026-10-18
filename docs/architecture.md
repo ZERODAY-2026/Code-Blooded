@@ -25,8 +25,8 @@ DataMind Receipts enforces an uncompromising separation between statistical lang
 │  - Table Allowlist & Schema Isolation Enforcement                      │
 │  - Deterministic LIMIT 200 Clamping                                    │
 │  - Snowflake EXPLAIN Plan Validation & Repair Loop (max 2 retries)     │
-│  - Cell-Level Claim Matching against Returned Rowset (src/verify.py)   │
-│  - Monospace Query Receipt Construction (src/receipt.py)               │
+│  - Cell-Level Claim Matching against Returned Rowset (src/verify.py (planned)) │
+│  - Monospace Query Receipt Construction (src/receipt.py (planned))             │
 └──────────────────────────────────┬─────────────────────────────────────┘
                                    │
                                    ▼

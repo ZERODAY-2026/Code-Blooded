@@ -218,7 +218,7 @@ datasets:
 
 | Dataset | Schema / Table | Source & Attribution | Licence |
 | :--- | :--- | :--- | :--- |
-| **Our World in Data (OWID)** | `DATAMIND.OWID.life_expectancy` | [TODO: Upstream source URL and commit SHA] | Creative Commons Attribution 4.0 International (CC BY 4.0) |
+| **Our World in Data (OWID)** | `DATAMIND.OWID.life_expectancy` | [TODO: Upstream source URL and commit SHA] | [TODO: Confirm indicator-specific upstream licence terms] |
 | **TPC-H Benchmark (SF1)** | `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.*` | Referenced live from Snowflake Shared Sample Data (`SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`) | Standard Snowflake Sample Data (referenced live, not redistributed) |
 
 ---
@@ -269,7 +269,7 @@ Code-Blooded/
 ### Current Implementation Status
 - **Implemented & Present in Repository**:
   - AST-based SQL safety validator (`src/validate.py`)
-  - Automated test suites (`tests/test_guardrails.py` & `tests/test_validate.py` passing; `tests/test_verify.py` written, skipped until `src/verify.py` ships — current run: 57 passed, 19 skipped)
+  - Automated test suites (`tests/test_guardrails.py` & `tests/test_validate.py` passing; `tests/test_verify.py` written, skipped until `src/verify.py` ships — run `pytest` to execute)
   - Ground-truth evaluation harness (`eval/questions.csv`)
   - Evaluation runner with mock isolation and DM_READER connector (`eval/run_eval.py`)
   - React workbench UI scaffold (`web/`)

@@ -13,17 +13,19 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [currentResponse, setCurrentResponse] = useState(
-    SAMPLE_RESPONSES["What are the top 5 countries by life expectancy in 2019?"]
+    import.meta.env.VITE_USE_MOCKS === 'true'
+      ? SAMPLE_RESPONSES["What are the top 5 countries by life expectancy in 2019?"]
+      : null
   );
   const [evalSummary, setEvalSummary] = useState(null);
 
-  // Try to load real eval summary from backend or static file
+  // Try to load real eval summary from backend
   useEffect(() => {
     fetch('/eval-summary')
       .then(res => res.json())
       .then(data => setEvalSummary(data))
       .catch(() => {
-        // Fallback to local default if backend is offline
+        // Leave evalSummary null to show unverified draft notice
       });
   }, []);
 
@@ -34,7 +36,7 @@ export default function App() {
     setLoading(true);
 
     try {
-      // 1. Try hitting the live FastAPI endpoint
+      // 1. Hit the live FastAPI endpoint
       const response = await fetch('/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -48,50 +50,29 @@ export default function App() {
         const data = await response.json();
         setCurrentResponse(data);
       } else {
-        throw new Error('Backend offline');
+        const errData = await response.json().catch(() => ({}));
+        setCurrentResponse({
+          status: "error",
+          answer: errData.detail || "API returned an error.",
+          sql: "",
+          receipt: null,
+          rows: null,
+        });
       }
     } catch (err) {
-      // 2. If FastAPI backend is still spinning up, provide rich pre-verified data
-      setTimeout(() => {
-        if (SAMPLE_RESPONSES[q]) {
-          setCurrentResponse(SAMPLE_RESPONSES[q]);
-        } else {
-          // Dynamic simulated response for new queries
-          setCurrentResponse({
-            status: "answered",
-            verification: "verified",
-            answer: `Queried Snowflake ${activeDataset.toUpperCase()} schema for "${q}". Returned verified results based on live indicators.`,
-            sql: `SELECT entity, life_expectancy\nFROM DATAMIND.OWID.life_expectancy\nWHERE year = 2019\nORDER BY life_expectancy DESC\nLIMIT 5;`,
-            explanation: `Computed live on Snowflake warehouse COMPUTE_WH using DM_READER role.`,
-            resolved_question: q,
-            assumptions: ["Filtered for recent non-null records", "Verified cell values match exactly"],
-            receipt: {
-              tables: [activeDataset === 'owid' ? "DATAMIND.OWID.life_expectancy" : "SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER"],
-              filters: ["year = 2019"],
-              aggregates: ["None"],
-              limit: 5,
-              query_id: `01b8e4f1-${Math.floor(Math.random()*10000).toString().padStart(4, '0')}-9a72`,
-              snowsight_url: "https://app.snowflake.com/yqdfpyo/am55321/#/analytics/queries",
-              role: "DM_READER (SELECT only)",
-              safety_check: "Passed sqlglot AST verification"
-            },
-            rows: {
-              columns: ["ENTITY", "VALUE"],
-              data: [
-                ["Japan", 84.36],
-                ["Hong Kong", 84.22],
-                ["Macao", 84.18],
-                ["Switzerland", 83.78],
-                ["Singapore", 83.62]
-              ]
-            },
-            retries: 0,
-            confidence: 0.95,
-            model: "gemma-4-26b-a4b-it",
-            timings_ms: { sql_gen: 420, snowflake: 190, verify: 15, total: 625 }
-          });
-        }
-      }, 500);
+      // 2. Mock fallback is opt-in only behind VITE_USE_MOCKS dev flag
+      const useMock = import.meta.env.VITE_USE_MOCKS === 'true';
+      if (useMock && SAMPLE_RESPONSES[q]) {
+        setCurrentResponse(SAMPLE_RESPONSES[q]);
+      } else {
+        setCurrentResponse({
+          status: "error",
+          answer: "Unable to reach FastAPI backend service at /ask. Ensure the API server is running on port 8000.",
+          sql: "",
+          receipt: null,
+          rows: null,
+        });
+      }
     } finally {
       setLoading(false);
     }

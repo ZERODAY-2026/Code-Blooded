@@ -13,9 +13,53 @@ Handbook Section 12 Specification:
 """
 
 import re
-from typing import Tuple, List, Set
+import os
+import glob
+from typing import Tuple, List, Set, Optional, Dict
+import yaml
 import sqlglot
 from sqlglot import exp
+
+_SCHEMA_REGISTRY_CACHE: Optional[Dict[str, Dict[str, str]]] = None
+
+
+def _load_schema_registry() -> Dict[str, Dict[str, str]]:
+    """
+    Dynamically loads table -> {schema, database} mappings from datasets/*.yaml.
+    Guarantees ZERO hardcoded database or schema names in Python code.
+    """
+    global _SCHEMA_REGISTRY_CACHE
+    if _SCHEMA_REGISTRY_CACHE is not None:
+        return _SCHEMA_REGISTRY_CACHE
+
+    registry: Dict[str, Dict[str, str]] = {}
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [
+        os.path.join(base_dir, "datasets", "*.yaml"),
+        os.path.join("datasets", "*.yaml"),
+    ]
+
+    for pattern in candidates:
+        for filepath in glob.glob(pattern):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f)
+                    if isinstance(data, dict):
+                        schema = str(data.get("schema", "")).upper()
+                        database = str(data.get("database", "")).upper()
+                        tables = data.get("tables", {})
+                        if isinstance(tables, dict):
+                            for tbl in tables.keys():
+                                registry[str(tbl).upper()] = {
+                                    "schema": schema,
+                                    "database": database,
+                                }
+            except Exception:
+                continue
+
+    _SCHEMA_REGISTRY_CACHE = registry
+    return registry
+
 
 # Statements strictly forbidden from execution
 BLOCKED_EXPRESSION_TYPES = (
@@ -128,18 +172,19 @@ def validate_sql(sql: str, allowed_tables: List[str]) -> Tuple[bool, str]:
         catalog_name = table_exp.catalog.upper() if table_exp.catalog else ""
 
         if schema_name:
-            if table_name in {"CUSTOMER", "ORDERS", "LINEITEM", "NATION", "REGION", "SUPPLIER", "PART", "PARTSUPP"}:
-                if schema_name != "TPCH_SF1":
-                    return False, f"Table '{table_name}' in unauthorized schema '{schema_name}' is not permitted."
-                if catalog_name and catalog_name != "SNOWFLAKE_SAMPLE_DATA":
-                    return False, f"Table '{table_name}' in unauthorized database '{catalog_name}' is not permitted."
-            elif table_name in {"LIFE_EXPECTANCY", "GDP_PER_CAPITA", "CO2", "POPULATION"}:
-                if schema_name != "OWID":
-                    return False, f"Table '{table_name}' in unauthorized schema '{schema_name}' is not permitted."
-                if catalog_name and catalog_name != "DATAMIND":
-                    return False, f"Table '{table_name}' in unauthorized database '{catalog_name}' is not permitted."
+            registry = _load_schema_registry()
+            expected_meta = registry.get(table_name)
+
+            if expected_meta:
+                expected_schema = expected_meta.get("schema", "")
+                expected_db = expected_meta.get("database", "")
+                if expected_schema and schema_name != expected_schema:
+                    return False, f"Table '{table_name}' in unauthorized schema '{schema_name}' is not permitted (expected '{expected_schema}')."
+                if catalog_name and expected_db and catalog_name != expected_db:
+                    return False, f"Table '{table_name}' in unauthorized database '{catalog_name}' is not permitted (expected '{expected_db}')."
             else:
                 return False, f"Unauthorized schema qualification '{schema_name}' on table '{table_name}'."
+
 
 
     return True, ""
