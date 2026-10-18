@@ -1,7 +1,7 @@
 # Problem Statement: PS1 — DataMind: Talk to Your Data
 
 > **Hacktoberfest Hack Day Dharwad × Vidkarya | ZeroDay OSS, IIIT Dharwad**
-> Team: [Your Team Name] | Submission Deadline: Oct 18, 2026, 8:59 PM IST
+> Team: Code Blooded | Submission Deadline: Oct 18, 2026, 8:59 PM IST
 
 ---
 
