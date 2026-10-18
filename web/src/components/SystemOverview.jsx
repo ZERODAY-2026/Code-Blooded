@@ -154,7 +154,7 @@ export default function SystemOverview({ onSelectQuestion }) {
                 type: 'Empty Entity Filter',
                 badge: 'bg-purple-100 text-purple-900 border-purple-300',
                 query: 'what is the life expectancy of Atlantis?',
-                desc: 'Non-existent entity returns 0 rows safely with unverifiable receipt.'
+                desc: 'Non-existent entity returns 0 rows safely with an empty-status receipt.'
               }
             ].map((item, idx) => (
               <button
