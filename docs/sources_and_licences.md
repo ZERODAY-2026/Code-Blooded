@@ -1,53 +1,48 @@
-# Datasets, Sources, and Licences
+# Data Sources and Licences
 
-> **DataMind Receipts — Problem Statement 1 (PS1)**  
-> **Compliance with Handbook Gate G4 (Data Disclosure & Licensing)**
-
----
-
-## 1. Our World in Data (OWID)
-
-### Overview
-Our World in Data (OWID) indicators provide historical socio-economic, demographic, and public health metrics. These tables are hosted within our dedicated Snowflake database (`DATAMIND.OWID`).
-
-### Table Inventory & Indicator Attribution
-| Table Name | Description | Upstream Source & Attribution | Licence |
-| :--- | :--- | :--- | :--- |
-| `DATAMIND.OWID.life_expectancy` | Life expectancy at birth across nations and years | Our World in Data — [TODO: Upstream download URL & dataset commit SHA from Person A] | [TODO: Confirm indicator licence & upstream terms from indicator page] |
-| `DATAMIND.OWID.gdp_per_capita` | GDP per capita in constant international dollars (planned) | Our World in Data / World Bank | [TODO: Confirm indicator licence] |
-| `DATAMIND.OWID.co2` | Annual CO2 emissions per capita (planned) | Our World in Data / Global Carbon Budget | [TODO: Confirm indicator licence] |
-| `DATAMIND.OWID.population` | National total population figures (planned) | Our World in Data / UN Population Division | [TODO: Confirm indicator licence] |
-
-### Data Preparation & Ingestion Steps
-1. **Raw Ingestion**: Data fetched via ingestion scripts using clean ISO 3-letter country codes (`code`).
-2. **Entity Filtering**: Regional aggregates and sub-national groups are filtered in queries using `LEFT(code, 5) <> 'OWID_'` to avoid double-counting national figures.
-3. **Database Isolation**: Loaded into `DATAMIND.OWID` with read-only permissions granted to `DM_READER`. Operators perform mutations or updates exclusively under the separate `DM_LOADER` role.
+This document discloses all datasets used by DataMind Receipts, their licences,
+and how they are accessed. This satisfies hackathon gate **G4** (data disclosure).
 
 ---
 
-## 2. TPC-H Benchmark (SF1)
+## 1. Our World in Data (OWID) — Life Expectancy
 
-### Overview
-The Transaction Processing Performance Council (TPC) TPC-H benchmark represents a standard decision support workload modeling wholesale suppliers, parts, orders, and customer line items.
+| Field         | Details |
+| :------------ | :------ |
+| **Dataset**   | Life Expectancy at Birth |
+| **Source**     | [Our World in Data — Life Expectancy](https://ourworldindata.org/grapher/life-expectancy) |
+| **Upstream**   | United Nations World Population Prospects and other sources compiled by OWID |
+| **Licence**   | [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/) |
+| **How loaded** | `scripts/download_owid.py` downloads the public CSV at runtime and loads it into `DATAMIND.OWID.LIFE_EXPECTANCY` using the `DM_LOADER` role. The raw CSV is **not committed** to the repository. |
+| **Columns**   | `entity` (country/region name), `code` (ISO 3166-1 alpha-3), `year`, `life_expectancy` (years) |
+| **Attribution** | Data from Our World in Data, licensed under CC BY 4.0. When citing, credit: *"Our World in Data — Life Expectancy."* |
 
-### Tables Referenced
-The following 8 tables are referenced live at Scale Factor 1 (~1 GB database):
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER` (150,000 rows)
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.ORDERS` (1,500,000 rows)
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.LINEITEM` (6,001,215 rows)
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.SUPPLIER` (10,000 rows)
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.PARTSUPP` (800,000 rows)
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.PART` (200,000 rows)
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.NATION` (25 rows)
-- `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.REGION` (5 rows)
-
-### Non-Redistribution & Gate G4 Compliance
-- **Zero Local Redistribution**: In compliance with handbook Gate G4, **no TPC-H data files, parquet dumps, or CSVs are committed to this repository**.
-- **Live Cloud Reference**: All TPC-H queries execute directly against the shared data share provisioned natively by Snowflake (`SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`).
-- **Access Role**: `DM_READER` is granted `USAGE` on the database and schema, and `SELECT` on all tables in `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1`.
+> **Note:** If additional OWID indicators (GDP per capita, CO2, population) are
+> added later, each must be checked for its specific licence (most are CC BY 4.0)
+> and attributed individually in this document.
 
 ---
 
-## 3. Project Licence
+## 2. TPC-H Sample Data (Snowflake)
 
-The DataMind codebase and documentation are released under the **MIT License** — see [LICENSE](../LICENSE) for complete terms.
+| Field         | Details |
+| :------------ | :------ |
+| **Dataset**   | TPC-H Benchmark Data |
+| **Source**     | `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1` — pre-loaded in every Snowflake account |
+| **Licence**   | Available under the [TPC EULA](http://www.tpc.org/tpc_documents_current_versions/pdf/tpc_eula.pdf). Data is **referenced in-account only** and never copied or committed to this repository. |
+| **How accessed** | The `DM_READER` role is granted `IMPORTED PRIVILEGES` on `SNOWFLAKE_SAMPLE_DATA`. The application queries it live when `config.yaml` points `dataset:` to `datasets/tpch.yaml`. |
+| **Attribution** | TPC Benchmark™ H — Standard Specification. Data is provided by Snowflake as a shared sample database. |
+
+> **Important:** TPC-H and TPC-DS sample data are **reference only**. Do not copy
+> any TPC data into the repository. The Snowflake shared database is read-only;
+> never attempt to insert into `SNOWFLAKE_SAMPLE_DATA`.
+
+---
+
+## Summary of Commitments
+
+- **No non-redistributable data is committed** to this repository.
+- Raw CSVs are downloaded at runtime by the load scripts; they are not checked in.
+- `SNOWFLAKE_SAMPLE_DATA` is accessed in-account only — never exported or stored locally.
+- Each dataset's licence is disclosed above with a link to the full licence text.
+- Additional datasets added in the future must be documented here before merging.
