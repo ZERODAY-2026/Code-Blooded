@@ -32,6 +32,18 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# Load .env if present
+try:
+    from dotenv import load_dotenv
+
+    _project_root = Path(__file__).resolve().parent.parent
+    _env_file = _project_root / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file)
+except ImportError:
+    pass
+
+
 # ── Sub-models ────────────────────────────────────────────────────────────────
 
 class TemperatureConfig(BaseModel):
@@ -48,6 +60,12 @@ class LimitsConfig(BaseModel):
     max_retries: int = 2
     # Passed to execute.py as a hint.  Actual timeout is enforced in Snowflake.
     query_timeout_s: int = 30
+    # Max output tokens for SQL generation / repair roles.
+    # gemma-4-26b-a4b-it uses chain-of-thought internally and needs ~8 k tokens
+    # to complete its reasoning and emit the final JSON before being truncated.
+    max_tokens_sql: int = 8192
+    # Max output tokens for the prose (explain) role.  Plain prose is short.
+    max_tokens_prose: int = 512
 
 
 # ── Main config model ─────────────────────────────────────────────────────────

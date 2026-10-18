@@ -59,6 +59,7 @@ def _safe_verify(
     prose: str,
     rows: RowSet,
     question: str,
+    is_simulated: bool = False,
 ) -> VerifyResult:
     """
     Safely invoke the external verifier, adapting to signature variations
@@ -75,6 +76,8 @@ def _safe_verify(
         kwargs["rows"] = rows
     if "question" in params:
         kwargs["question"] = question
+    if "is_simulated" in params:
+        kwargs["is_simulated"] = is_simulated
 
     if len(kwargs) == len(params) and len(params) > 0:
         return verifier(**kwargs)
@@ -154,6 +157,7 @@ class DataMindPipeline:
             max_rows=self.config.limits.max_rows,
             temperature_sql=self.config.temperature.sql,
             temperature_repair=self.config.temperature.repair,
+            max_tokens=self.config.limits.max_tokens_sql,
             history=history,
         )
 
@@ -306,7 +310,7 @@ class DataMindPipeline:
                 prose_res, _ = self.provider.explain_answer(
                     prompt=explain_prompt,
                     temperature=self.config.temperature.prose,
-                    max_tokens=512,
+                    max_tokens=self.config.limits.max_tokens_prose,
                     trace=trace,
                 )
                 raw_prose = prose_res.prose
@@ -315,7 +319,7 @@ class DataMindPipeline:
                     role="explain",
                     prompt=explain_prompt,
                     temperature=self.config.temperature.prose,
-                    max_tokens=512,
+                    max_tokens=self.config.limits.max_tokens_prose,
                 )
                 from src.llm.prompts import parse_prose_result
                 prose_res = parse_prose_result(raw_text)
@@ -341,6 +345,7 @@ class DataMindPipeline:
         verified_answer = raw_prose
         status = "answered"
 
+        is_simulated = "simulated_demo_result" in flags
         if self.verifier is not None:
             try:
                 verify_result = _safe_verify(
@@ -348,6 +353,7 @@ class DataMindPipeline:
                     raw_prose,
                     rows,
                     clean_question,
+                    is_simulated=is_simulated,
                 )
                 verified_answer = verify_result.verified_answer
                 evidence = verify_result.evidence
@@ -363,6 +369,10 @@ class DataMindPipeline:
                 confidence = "partial"
         else:
             flags.append("verifier_not_configured")
+
+        # Guard: simulated results must never be marked verified against live Snowflake data
+        if is_simulated and confidence == "verified":
+            confidence = "partial"
 
         # 11. Final Response Assembly
         return AskResponse(

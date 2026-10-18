@@ -20,7 +20,7 @@ provider: api           # "api" | "ollama"
 #   gemma-3-27b-it
 #   gemma-4-31b-it
 #   gemma-4-26b-a4b-it
-model: ""
+model: "gemma-4-26b-a4b-it"
 
 # Required when provider=ollama. Exact tag from `ollama list`.
 # Do not assume a Gemma 4 tag exists locally; verify with `ollama list` first.
@@ -50,6 +50,13 @@ limits:
   max_retries: 2
   # Statement timeout hint passed to execute.py. Enforcement is in Snowflake.
   query_timeout_s: 30
+  # Max output tokens for SQL generation and repair roles.
+  # gemma-4-26b-a4b-it emits chain-of-thought reasoning before the JSON answer,
+  # consuming several thousand tokens. 8192 is confirmed to be enough.
+  # Set lower only if using a non-thinking model to speed up responses.
+  max_tokens_sql: 8192
+  # Max output tokens for the prose explanation role. Plain prose is short.
+  max_tokens_prose: 512
 
 # Keep false in demo and public mode. Cached answers must never bypass a live
 # Snowflake query — the mandatory feature check requires real query-time compute.

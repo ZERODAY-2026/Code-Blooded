@@ -22,6 +22,15 @@ import logging
 from pathlib import Path
 from typing import Any
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+import os
+import time
+
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -30,7 +39,14 @@ from pydantic import BaseModel, Field
 
 from src.config import AppConfig, load_config
 from src.llm import GemmaAPIProvider
-from src.models import AskResponse, ModelInfo
+from src.models import (
+    AskResponse,
+    EvidenceCell,
+    ExecuteResult,
+    ModelInfo,
+    RowSet,
+    VerifyResult,
+)
 from src.pipeline import DataMindPipeline
 from src.validate import DatasetSchema
 
@@ -48,29 +64,128 @@ class AskRequest(BaseModel):
 
 # ── Dependency Provider ──────────────────────────────────────────────────────
 
-def get_default_pipeline() -> DataMindPipeline:
+def get_default_pipeline(request: Request = None) -> DataMindPipeline:
     """
     Default dependency provider: loads configuration, schema, and provider.
     Can be overridden in tests via app.dependency_overrides[get_default_pipeline].
     """
     cfg = load_config()
 
-    # Load dataset schema
-    dataset_path = Path(cfg.dataset)
+    # Determine active dataset: either from request app state or cfg.dataset
+    active_ds = None
+    if request is not None and hasattr(request, "app") and hasattr(request.app, "state"):
+        active_ds = getattr(request.app.state, "active_dataset", None)
+
+    if active_ds:
+        dataset_path = Path(f"datasets/{active_ds}.yaml")
+    else:
+        dataset_path = Path(cfg.dataset)
+        if not dataset_path.exists():
+            dataset_path = Path("datasets/owid.yaml")
+
     if not dataset_path.exists():
-        dataset_path = Path("datasets/owid.yaml")
-    if not dataset_path.exists():
-        raise FileNotFoundError(f"Dataset schema not found at {cfg.dataset} or datasets/owid.yaml")
+        raise FileNotFoundError(f"Dataset schema not found at {dataset_path}")
 
     schema = DatasetSchema.from_yaml(dataset_path)
 
     # Instantiate LLM provider
-    provider = GemmaAPIProvider(model_name=cfg.model or "gemma-3-27b-it")
+    provider = GemmaAPIProvider(model_name=cfg.model or "gemma-4-26b-a4b-it")
+
+    # Check for live Snowflake credentials
+    sf_account = os.environ.get("SNOWFLAKE_ACCOUNT", "").strip()
+    sf_user = os.environ.get("SNOWFLAKE_USER", "").strip()
+    sf_password = os.environ.get("SNOWFLAKE_PASSWORD", "").strip()
+    sf_private_key = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PATH", "").strip()
+
+    executor = None
+    verifier = None
+
+    has_snowflake_creds = bool(sf_account and sf_user and (sf_password or sf_private_key))
+    if has_snowflake_creds:
+        try:
+            from src.execute import execute_snowflake
+
+            def _live_exec(sql: str) -> ExecuteResult:
+                res = execute_snowflake(sql, timeout_s=cfg.limits.query_timeout_s)
+                if res.error:
+                    if os.environ.get("DEMO_MODE", "").lower() in ("true", "1", "yes"):
+                        return ExecuteResult(
+                            rows=RowSet(
+                                columns=["entity", "life_expectancy"],
+                                data=[
+                                    ["Japan", 84.4],
+                                    ["Switzerland", 83.8],
+                                    ["Singapore", 83.6],
+                                    ["Spain", 83.5],
+                                    ["Italy", 83.3],
+                                ],
+                            ),
+                            query_id="DEMO-SIMULATED-0001",
+                            timings_ms=res.timings_ms,
+                            flags=["simulated_demo_result", f"snowflake_unavailable: {res.error}"],
+                        )
+                return res
+
+            executor = _live_exec
+            logger.info("Configured Snowflake executor.")
+        except Exception as err:
+            logger.warning("Could not initialize Snowflake executor: %s", err)
+
+    try:
+        from src.verify import verify_answer
+
+        def _pipeline_verify(prose: str, rows: RowSet, question: str = "", is_simulated: bool = False) -> VerifyResult:
+            return verify_answer(prose=prose, columns=rows.columns, rows=rows.data, is_simulated=is_simulated)
+
+        verifier = _pipeline_verify
+        logger.info("Configured evidence verifier.")
+    except Exception as err:
+        logger.warning("Could not initialize verifier: %s", err)
+
+    if executor is None:
+        def _demo_exec(sql: str) -> ExecuteResult:
+            return ExecuteResult(
+                rows=RowSet(
+                    columns=["entity", "life_expectancy"],
+                    data=[
+                        ["Japan", 84.4],
+                        ["Switzerland", 83.8],
+                        ["Singapore", 83.6],
+                        ["Spain", 83.5],
+                        ["Italy", 83.3],
+                    ],
+                ),
+                query_id="DEMO-SIMULATED-0001",
+                timings_ms={"snowflake": 15},
+                flags=["simulated_demo_result", "snowflake_unconfigured"],
+            )
+
+        executor = _demo_exec
+
+    if verifier is None:
+        def _demo_verify(prose: str, rows: RowSet, question: str = "") -> VerifyResult:
+            evidence: list[EvidenceCell] = []
+            for r_idx, row in enumerate(rows.data):
+                for c_idx, col_name in enumerate(rows.columns):
+                    val_str = str(row[c_idx])
+                    if val_str and val_str in prose:
+                        evidence.append(EvidenceCell(text=val_str, row_index=r_idx, column=col_name))
+            confidence = "verified" if evidence else "partial"
+            return VerifyResult(
+                verified_answer=prose,
+                evidence=evidence,
+                confidence=confidence,
+                status="answered",
+            )
+
+        verifier = _demo_verify
 
     return DataMindPipeline(
         config=cfg,
         schema=schema,
         provider=provider,
+        executor=executor,
+        verifier=verifier,
     )
 
 
@@ -152,14 +267,77 @@ def create_app(
         available = []
         if datasets_dir.exists():
             for f in datasets_dir.glob("*.yaml"):
-                available.append(f.stem)
+                available.append({
+                    "id": f.stem,
+                    "dataset_id": f.stem,
+                    "name": "Our World in Data (OWID)" if f.stem == "owid" else f.stem.upper(),
+                })
         if not available:
-            available = ["owid"]
+            available = [{"id": "owid", "dataset_id": "owid", "name": "Our World in Data (OWID)"}]
 
         return {
             "datasets": available,
             "active": pipeline_dep.schema.name or "owid",
         }
+
+    @app.post("/switch-dataset", tags=["Datasets"])
+    @app.post("/api/switch-dataset", tags=["Datasets"])
+    async def switch_dataset_route(
+        request: Request,
+        payload: dict[str, Any],
+        pipeline_dep: DataMindPipeline = Depends(get_default_pipeline),
+    ) -> dict[str, Any]:
+        """Switch active dataset."""
+        if pipeline_dep.config.public_mode:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Dataset switching is disabled in public mode.",
+            )
+
+        target = str(payload.get("dataset") or payload.get("dataset_id") or "").strip().lower()
+        if not target:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Dataset identifier is required.",
+            )
+
+        ds_path = Path(f"datasets/{target}.yaml")
+        if not ds_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Requested dataset '{target}' was not found.",
+            )
+
+        try:
+            new_schema = DatasetSchema.from_yaml(ds_path)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to load dataset schema '{target}': {e}",
+            )
+
+        request.app.state.active_dataset = target
+        return {
+            "status": "ok",
+            "active": target,
+            "name": new_schema.name or target,
+            "tables": list(new_schema.tables.keys()),
+        }
+
+    # ── Evaluation Summary Endpoint ──────────────────────────────────────────
+    @app.get("/eval-summary", tags=["Evaluation"])
+    @app.get("/api/eval-summary", tags=["Evaluation"])
+    async def get_eval_summary() -> JSONResponse:
+        """Return evaluation benchmark results if available."""
+        eval_path = Path("eval/summary.json")
+        if eval_path.exists():
+            import json
+            try:
+                with eval_path.open("r", encoding="utf-8") as f:
+                    return JSONResponse(content=json.load(f))
+            except Exception as e:
+                logger.warning("Could not parse eval summary: %s", e)
+        return JSONResponse(status_code=404, content={"detail": "No evaluation summary available yet"})
 
     # ── Ask Endpoints ────────────────────────────────────────────────────────
     @app.post("/ask", response_model=AskResponse, tags=["Query"])
@@ -185,6 +363,13 @@ def create_app(
                 ),
             )
 
+        # Check public_mode guard for dataset override
+        if pipeline_dep.config.public_mode and payload.dataset and payload.dataset != pipeline_dep.schema.name:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Dataset switching is disabled in public mode.",
+            )
+
         # Dataset override handling if requested
         active_pipeline = pipeline_dep
         if payload.dataset and payload.dataset != pipeline_dep.schema.name:
@@ -207,7 +392,7 @@ def create_app(
                     provider=pipeline_dep.provider,
                     executor=pipeline_dep.executor,
                     verifier=pipeline_dep.verifier,
-                    validator=None,
+                    validator=SQLValidator(schema=new_schema, max_rows=pipeline_dep.config.limits.max_rows),
                 )
             except Exception as ds_err:
                 logger.warning("Could not switch to dataset '%s': %s", payload.dataset, ds_err)

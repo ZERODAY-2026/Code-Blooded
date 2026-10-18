@@ -85,12 +85,23 @@ def _call_provider_generate(
 
     # Generic LLMProvider fallback (e.g. for mock providers in unit tests)
     with Timer() as timer:
-        raw_text, first_try = provider.raw_generate(
-            role=role,
-            prompt=prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        try:
+            raw_text, first_try = provider.raw_generate(
+                role=role,
+                prompt=prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except Exception:
+            if trace is not None:
+                trace.record(
+                    role=role,
+                    provider=provider.provider_name,
+                    model=provider.model_name,
+                    ms=timer.elapsed_ms,
+                    valid_first_try=False,
+                )
+            raise
 
     parsed = parse_generate_result(raw_text)
 
@@ -106,6 +117,7 @@ def _call_provider_generate(
     return parsed, first_try
 
 
+
 # ── Main Orchestration Function ──────────────────────────────────────────────
 
 def generate_validated_sql(
@@ -119,7 +131,7 @@ def generate_validated_sql(
     max_rows: int = 200,
     temperature_sql: float = 0.1,
     temperature_repair: float = 0.1,
-    max_tokens: int = 1024,
+    max_tokens: int = 8192,
     history: list[dict[str, str]] | None = None,
     few_shot_examples: list[dict[str, str]] | None = None,
 ) -> SQLGenResult:

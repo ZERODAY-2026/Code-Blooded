@@ -46,9 +46,19 @@ def extract_json(raw_text: str) -> str:
     Handles:
     - Markdown code fences (```json ... ``` or ``` ... ```)
     - Leading/trailing conversational filler
-    - Outermost JSON object extraction ({ ... })
+    - Chain-of-thought (CoT) reasoning before the final JSON object
+    - Outermost JSON object extraction using balanced brace matching
+
+    Raises
+    ──────
+    ValueError: If the input is empty/blank or no JSON object braces are found.
     """
     text = (raw_text or "").strip()
+
+    if not text:
+        raise ValueError(
+            "Model returned empty or whitespace-only output; cannot extract JSON."
+        )
 
     # Strip markdown code fences if present
     if "```" in text:
@@ -56,13 +66,41 @@ def extract_json(raw_text: str) -> str:
         if fence_match:
             text = fence_match.group(1).strip()
 
-    # Find the outermost JSON object
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return text[start : end + 1]
+    # Find the LAST outermost balanced JSON object.
+    # Thinking models (like gemma-4-26b-a4b-it) emit CoT reasoning that may
+    # contain intermediate {example} snippets before the final answer JSON.
+    # We scan backwards from the last '}' to find a balanced outer object.
+    last_brace = text.rfind("}")
+    if last_brace == -1:
+        raise ValueError(
+            f"No JSON object ({{...}}) found in model output. Raw text (first 200 chars): "
+            f"{text[:200]!r}"
+        )
 
-    return text
+    # Walk backwards to find the matching opening '{'
+    depth = 0
+    for i in range(last_brace, -1, -1):
+        ch = text[i]
+        if ch == "}":
+            depth += 1
+        elif ch == "{":
+            depth -= 1
+            if depth == 0:
+                candidate = text[i : last_brace + 1]
+                # Quick sanity: must contain at least one ':'
+                if ":" in candidate:
+                    return candidate
+                # If no colon, keep scanning for a better candidate
+                last_brace = text.rfind("}", 0, i)
+                if last_brace == -1:
+                    break
+                depth = 0
+                continue
+
+    raise ValueError(
+        f"No JSON object ({{...}}) found in model output. Raw text (first 200 chars): "
+        f"{text[:200]!r}"
+    )
 
 
 def parse_generate_result(raw_text: str) -> GenerateResult:
@@ -71,12 +109,16 @@ def parse_generate_result(raw_text: str) -> GenerateResult:
 
     Raises
     ──────
-    ValueError: If JSON is malformed or does not satisfy GenerateResult schema.
+    ValueError: If input is blank, JSON is malformed, or does not satisfy GenerateResult schema.
     """
-    cleaned_json = extract_json(raw_text)
+    if not (raw_text or "").strip():
+        raise ValueError(
+            "Model returned empty output; expected a GenerateResult JSON object."
+        )
     try:
+        cleaned_json = extract_json(raw_text)
         data = json.loads(cleaned_json)
-    except json.JSONDecodeError as err:
+    except (ValueError, json.JSONDecodeError) as err:
         raise ValueError(f"Model output is not valid JSON: {err}") from err
 
     if not isinstance(data, dict):
@@ -93,10 +135,10 @@ def parse_prose_result(raw_text: str) -> ProseResult:
     ──────
     ValueError: If JSON is malformed or does not satisfy ProseResult schema.
     """
-    cleaned_json = extract_json(raw_text)
     try:
+        cleaned_json = extract_json(raw_text)
         data = json.loads(cleaned_json)
-    except json.JSONDecodeError as err:
+    except (ValueError, json.JSONDecodeError) as err:
         # If model returned pure plain text instead of JSON, encapsulate it gracefully
         if raw_text and not raw_text.strip().startswith("{"):
             plain = raw_text.strip()

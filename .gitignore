@@ -49,3 +49,8 @@ guide.pdf
 
 # ── Eval artefacts (results files are committed; raw outputs are not) ─────────
 eval/results_raw/
+
+# Diagnostic/scratch outputs --- never commit these
+pytest_error.txt
+scratch_*.py
+

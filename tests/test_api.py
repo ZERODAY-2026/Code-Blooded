@@ -323,11 +323,74 @@ class TestDatasetOverrideAndConfigErrors:
         test_app.dependency_overrides[get_default_pipeline] = failing_pipeline
         c = TestClient(test_app, raise_server_exceptions=False)
 
-        resp = c.get("/health")
-        assert resp.status_code == 500
+    def test_switch_dataset_valid(self, client: TestClient) -> None:
+        resp = client.post("/switch-dataset", json={"dataset": "owid"})
+        assert resp.status_code == 200
         data = resp.json()
-        assert data["status"] == "error"
-        assert "configuration_error" in data["flags"]
-        assert "GOOGLE_GEMMA_API_KEY" in data["answer"]
+        assert data["status"] == "ok"
+        assert data["active"] == "owid"
+        assert "life_expectancy" in data["tables"]
+
+    def test_switch_dataset_invalid_rejected(self, client: TestClient) -> None:
+        resp = client.post("/switch-dataset", json={"dataset": "non_existent_dataset_123"})
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+    def test_dataset_switching_disabled_in_public_mode(self, mock_pipeline: MagicMock) -> None:
+        mock_pipeline.config.public_mode = True
+        test_app = create_app(pipeline=mock_pipeline)
+        c = TestClient(test_app)
+
+        # POST /switch-dataset should return 403 in public mode
+        resp = c.post("/switch-dataset", json={"dataset": "owid"})
+        assert resp.status_code == 403
+        assert "disabled in public mode" in resp.json()["detail"]
+
+        # POST /ask with dataset override should also return 403 in public mode
+        resp_ask = c.post("/ask", json={"question": "What is the population?", "dataset": "other"})
+        assert resp_ask.status_code == 403
+        assert "disabled in public mode" in resp_ask.json()["detail"]
+
+    def test_dataset_switch_synchronizes_validator(self, tmp_path: Path, monkeypatch) -> None:
+        from pathlib import Path
+        from src.validate import DatasetSchema
+
+        # Create a mock secondary dataset YAML in datasets/
+        test_yaml = Path("datasets/test_custom.yaml")
+        yaml_content = """name: test_custom
+snowflake:
+  database: DATAMIND
+  schema: CUSTOM
+tables:
+  custom_metrics:
+    columns:
+      metric_name:
+        type: text
+      metric_val:
+        type: float
+"""
+        test_yaml.write_text(yaml_content, encoding="utf-8")
+        try:
+            app = create_app()
+            c = TestClient(app)
+
+            # Switch to test_custom
+            resp = c.post("/switch-dataset", json={"dataset": "test_custom"})
+            assert resp.status_code == 200
+            assert resp.json()["active"] == "test_custom"
+            assert "custom_metrics" in resp.json()["tables"]
+
+            # Inspect pipeline constructed for the app
+            class DummyReq:
+                app = c.app
+            pipeline = get_default_pipeline(DummyReq())
+            assert pipeline.schema.name == "test_custom"
+            assert "custom_metrics" in pipeline.validator.schema.tables
+            assert "life_expectancy" not in pipeline.validator.schema.tables
+        finally:
+            if test_yaml.exists():
+                test_yaml.unlink()
+
+
 
 

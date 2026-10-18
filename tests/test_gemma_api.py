@@ -443,3 +443,207 @@ def test_is_rate_limit_helper() -> None:
 
     exc_other = RuntimeError("connection reset by peer")
     assert _is_rate_limit_error(exc_other) is False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 7. Transient 5xx Retries, Error Handling & Safety
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestTransientRetriesAndErrors:
+    def test_transient_http_500_retries_and_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        mock_client = MagicMock()
+        err_500 = errors.APIError(code=500, response_json={"error": {"code": 500, "message": "Internal error encountered.", "status": "INTERNAL"}})
+        mock_good = MagicMock(text='```json\n{"status": "answer", "sql": "SELECT 1;"}\n```')
+        mock_client.models.generate_content.side_effect = [err_500, mock_good]
+
+        provider = GemmaAPIProvider(model_name="gemma-4-26b-a4b-it", client=mock_client, max_retries=2)
+        trace = GemmaCallTrace()
+        res, first_try = provider.generate_plan_and_sql("What is test?", trace=trace)
+
+        assert res.status == "answer"
+        assert res.sql == "SELECT 1;"
+        assert first_try is False
+        assert mock_client.models.generate_content.call_count == 2
+        assert trace.call_count() == 1
+        assert trace.to_list()[0]["valid_first_try"] is False
+
+    def test_persistent_http_500_exhausts_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        mock_client = MagicMock()
+        err_500 = errors.APIError(code=500, response_json={"error": {"code": 500, "message": "Internal error encountered.", "status": "INTERNAL"}})
+        mock_client.models.generate_content.side_effect = err_500
+
+        provider = GemmaAPIProvider(model_name="gemma-4-26b-a4b-it", client=mock_client, max_retries=2)
+        trace = GemmaCallTrace()
+
+        with pytest.raises(ProviderError, match="failed after 3 attempts") as exc_info:
+            provider.generate_plan_and_sql("What is test?", trace=trace)
+
+        assert exc_info.value.is_rate_limit is False
+        assert mock_client.models.generate_content.call_count == 3  # 1 initial + 2 retries
+        assert trace.call_count() == 1
+        assert trace.to_list()[0]["valid_first_try"] is False
+
+    def test_empty_model_response_raises_provider_error(self) -> None:
+        mock_client = MagicMock()
+        mock_empty = MagicMock(text="", candidates=[])
+        mock_client.models.generate_content.return_value = mock_empty
+
+        provider = GemmaAPIProvider(model_name="gemma-4-26b-a4b-it", client=mock_client)
+        trace = GemmaCallTrace()
+
+        with pytest.raises(ProviderError, match="empty or blocked content"):
+            provider.generate_plan_and_sql("What is test?", trace=trace)
+
+        assert mock_client.models.generate_content.call_count == 1
+        assert trace.call_count() == 1
+
+    def test_blocked_response_safety_finish_reason(self) -> None:
+        mock_client = MagicMock()
+        candidate = MagicMock()
+        candidate.finish_reason = "SAFETY"
+        candidate.safety_ratings = [{"category": "HARM_CATEGORY_DANGEROUS", "probability": "HIGH"}]
+        mock_blocked = MagicMock(text=None, candidates=[candidate])
+        mock_client.models.generate_content.return_value = mock_blocked
+
+        provider = GemmaAPIProvider(model_name="gemma-4-26b-a4b-it", client=mock_client)
+        trace = GemmaCallTrace()
+
+        with pytest.raises(ProviderError, match="response blocked"):
+            provider.generate_plan_and_sql("What is test?", trace=trace)
+
+        assert mock_client.models.generate_content.call_count == 1
+        assert trace.call_count() == 1
+
+    def test_auth_or_permission_error_fails_immediately_without_retries(self) -> None:
+        mock_client = MagicMock()
+        err_401 = errors.APIError(code=401, response_json={"error": {"code": 401, "message": "API key not valid", "status": "UNAUTHENTICATED"}})
+        mock_client.models.generate_content.side_effect = err_401
+
+        provider = GemmaAPIProvider(model_name="gemma-4-26b-a4b-it", client=mock_client, max_retries=3)
+        trace = GemmaCallTrace()
+
+        with pytest.raises(ProviderError, match="API error"):
+            provider.generate_plan_and_sql("What is test?", trace=trace)
+
+        # Call count must be exactly 1: permanent errors must never retry
+        assert mock_client.models.generate_content.call_count == 1
+        assert trace.call_count() == 1
+        assert trace.to_list()[0]["valid_first_try"] is False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 8. MAX_TOKENS Truncation Regression Tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _make_max_tokens_response() -> MagicMock:
+    """Simulate a gemma-4-26b-a4b-it response truncated at MAX_TOKENS.
+
+    The SDK sets response.text = None when finish_reason == MAX_TOKENS because
+    the output is incomplete. The model ran out of tokens mid-CoT before emitting JSON.
+    """
+    candidate = MagicMock()
+    candidate.finish_reason = "MAX_TOKENS"
+    candidate.safety_ratings = []
+    truncated_text = (
+        "* The user wants to know which countries have the highest life expectancy.\n"
+        "* I need to query the life_expectancy table and ORDER BY life_expectancy DESC.\n"
+        "* SELECT entity, life_expectancy FROM life_expectancy WHERE year = (\n"
+    )
+    content = MagicMock()
+    part = MagicMock()
+    part.text = truncated_text
+    content.parts = [part]
+    candidate.content = content
+    mock_resp = MagicMock()
+    mock_resp.text = None  # SDK returns None for truncated outputs
+    mock_resp.candidates = [candidate]
+    mock_resp.prompt_feedback = None
+    return mock_resp
+
+
+class TestMaxTokensRegression:
+    """Regression tests for MAX_TOKENS truncation (gemma-4-26b-a4b-it CoT behaviour)."""
+
+    def test_max_tokens_first_attempt_retries_and_succeeds(self) -> None:
+        """Truncated first call triggers the JSON-nudge retry, which succeeds."""
+        mock_client = MagicMock()
+        good_json = (
+            '{"status": "answer", "sql": "SELECT entity, life_expectancy '
+            'FROM life_expectancy ORDER BY life_expectancy DESC LIMIT 10;", '
+            '"assumptions": ["Top 10"], "resolved_question": "life expectancy", '
+            '"clarifying_question": null, "refusal_reason": null}'
+        )
+        good_response = MagicMock()
+        good_candidate = MagicMock()
+        good_candidate.finish_reason = "STOP"
+        good_candidate.safety_ratings = []
+        good_response.text = good_json
+        good_response.candidates = [good_candidate]
+        good_response.prompt_feedback = None
+
+        mock_client.models.generate_content.side_effect = [
+            _make_max_tokens_response(),  # First call: truncated
+            good_response,                # Second call (nudge retry): valid JSON
+        ]
+
+        provider = GemmaAPIProvider(model_name="gemma-4-26b-a4b-it", client=mock_client)
+        trace = GemmaCallTrace()
+        result, first_try = provider.generate_plan_and_sql(
+            "Which countries have the highest life expectancy?",
+            trace=trace,
+        )
+
+        assert result.status == "answer"
+        assert result.sql is not None
+        assert "life_expectancy" in result.sql.lower()
+        assert first_try is False
+        assert mock_client.models.generate_content.call_count == 2
+        assert trace.call_count() == 1
+        assert trace.to_list()[0]["valid_first_try"] is False
+
+    def test_max_tokens_both_attempts_truncated_raises_provider_error(self) -> None:
+        """Both truncated calls → clear ProviderError mentioning truncation/json, not JSONDecodeError."""
+        mock_client = MagicMock()
+        mock_client.models.generate_content.return_value = _make_max_tokens_response()
+
+        provider = GemmaAPIProvider(model_name="gemma-4-26b-a4b-it", client=mock_client)
+        trace = GemmaCallTrace()
+
+        with pytest.raises(ProviderError) as exc_info:
+            provider.generate_plan_and_sql(
+                "Which countries have the highest life expectancy?",
+                trace=trace,
+            )
+
+        err_msg = str(exc_info.value).lower()
+        assert "truncated" in err_msg or "max_tokens" in err_msg or "json" in err_msg
+        assert mock_client.models.generate_content.call_count == 2
+        assert trace.call_count() == 1
+        assert trace.to_list()[0]["valid_first_try"] is False
+
+    def test_extract_json_skips_cot_reasoning_finds_last_json(self) -> None:
+        """extract_json must skip CoT bullet-point {snippets} and find the final JSON object."""
+        cot_with_json = (
+            "* Schema context: {\"table\": \"life_expectancy\"} — just context.\n"
+            "* I will now construct the query.\n"
+            '{"status": "answer", "sql": "SELECT entity FROM life_expectancy LIMIT 5;", '
+            '"assumptions": [], "resolved_question": "test", '
+            '"clarifying_question": null, "refusal_reason": null}'
+        )
+        extracted = extract_json(cot_with_json)
+        assert '"status"' in extracted
+        assert "SELECT entity" in extracted
+
+    def test_extract_json_raises_on_empty_input(self) -> None:
+        """extract_json must raise ValueError on empty/blank input."""
+        with pytest.raises(ValueError, match="empty"):
+            extract_json("")
+        with pytest.raises(ValueError, match="empty"):
+            extract_json("   \n  ")
+
+    def test_parse_generate_result_raises_on_empty_input(self) -> None:
+        """parse_generate_result must raise ValueError (not crash) on blank input."""
+        with pytest.raises(ValueError, match="empty output"):
+            parse_generate_result("")

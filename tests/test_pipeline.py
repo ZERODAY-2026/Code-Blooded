@@ -568,3 +568,29 @@ class TestMissingDependenciesAndEdgeCases:
             provider=provider,
         )
         assert resp.status == "clarify"
+
+    def test_provider_failure_returns_error_with_trace_and_timing(
+        self,
+        mock_config: AppConfig,
+        test_schema: DatasetSchema,
+    ) -> None:
+        from src.llm.base import ProviderError
+        mock_failing_llm = MagicMock(spec=LLMProvider)
+        mock_failing_llm.provider_name = "api"
+        mock_failing_llm.model_name = "gemma-4-26b-a4b-it"
+        mock_failing_llm.raw_generate.side_effect = ProviderError("500 INTERNAL server error")
+
+        pipeline = DataMindPipeline(
+            config=mock_config,
+            schema=test_schema,
+            provider=mock_failing_llm,
+        )
+
+        resp = pipeline.ask("What is the average life expectancy?")
+        assert resp.status == "error"
+        assert "LLM provider error" in (resp.answer or "")
+        assert len(resp.gemma_calls) == 1
+        assert resp.gemma_calls[0].role == "generate"
+        assert resp.gemma_calls[0].valid_first_try is False
+        assert resp.timings_ms["gemma"] >= 0
+
