@@ -60,6 +60,7 @@ def _safe_verify(
     rows: RowSet,
     question: str,
     is_simulated: bool = False,
+    sql: str = "",
 ) -> VerifyResult:
     """
     Safely invoke the external verifier, adapting to signature variations
@@ -78,6 +79,8 @@ def _safe_verify(
         kwargs["question"] = question
     if "is_simulated" in params:
         kwargs["is_simulated"] = is_simulated
+    if "sql" in params:
+        kwargs["sql"] = sql
 
     if len(kwargs) == len(params) and len(params) > 0:
         return verifier(**kwargs)
@@ -354,6 +357,7 @@ class DataMindPipeline:
                     rows,
                     clean_question,
                     is_simulated=is_simulated,
+                    sql=validated_sql,
                 )
                 verified_answer = verify_result.verified_answer
                 evidence = verify_result.evidence

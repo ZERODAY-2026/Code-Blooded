@@ -134,8 +134,9 @@ def get_default_pipeline(request: Request = None) -> DataMindPipeline:
     try:
         from src.verify import verify_answer
 
-        def _pipeline_verify(prose: str, rows: RowSet, question: str = "", is_simulated: bool = False) -> VerifyResult:
-            v_res = verify_answer(prose, rows.columns, rows.data)
+        def _pipeline_verify(prose: str, rows: RowSet, question: str = "", is_simulated: bool = False, sql: str = "") -> VerifyResult:
+            effective_sql = f"{sql} {question}".strip()
+            v_res = verify_answer(prose, rows.columns, rows.data, sql=effective_sql)
             ev_cells = [
                 EvidenceCell(text=str(item["text"]), row_index=int(item["row_index"]), column=str(item["column"]))
                 for item in getattr(v_res, "evidence", [])
