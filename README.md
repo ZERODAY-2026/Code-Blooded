@@ -79,11 +79,11 @@ Answer + Evidence + SQL Receipt
 
 ## Team
 
-| Role | Responsibility |
-|------|---------------|
-| Person A | Snowflake setup, data loading, SQL execution engine |
-| Person B | LLM provider, pipeline, FastAPI backend |
-| Person C | Eval harness, tests, React UI, docs |
+| Name | Role | Responsibility |
+|------|------|---------------|
+| **Aryan Verma** (Team Lead) | Person B | Backend, LLM Provider & Pipeline Architecture |
+| **Kolukuri Ashrith** | Person A | Snowflake Data Warehouse, Data Load & SQL Engine |
+| **Kataru Deekshith Reddy** | Person C | Eval Harness, Test Suites, React UI & Documentation |
 
 ---
 
