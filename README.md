@@ -5,32 +5,35 @@
 
 ---
 
-## Overview
+## Architecture Overview
 
-**DataMind Receipts** is a grounded, natural-language interface to structured enterprise databases. Users ask questions in plain English, and the system synthesizes live SQL, validates it through strict Abstract Syntax Tree (AST) guardrails, executes it against Snowflake using read-only credentials, and returns a verified prose answer backed by an explicit SQL execution receipt.
+**DataMind Receipts** is designed as a grounded, verifiable natural-language interface to enterprise data in Snowflake. 
 
-### Core Architecture Principles
-- **Gemma 4 does language only**: Question interpretation, SQL generation, SQL repair on dialect errors, and natural-language explanation.
-- **Deterministic code does computation and safety**: AST parsing, statement isolation, table allowlisting, LIMIT enforcement, and evidence cell matching are handled entirely by deterministic Python code.
-- **Read-only execution**: Queries execute exclusively under Snowflake's `DM_READER` role. Mutation operations (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `MERGE`, etc.) are blocked at both the AST layer and database privilege layer.
-- **Verifiable Receipts**: Every answer is paired with a receipt detailing tables queried, joins, filters applied, row counts, and the Snowflake Query ID.
+Users submit queries in plain English. The system uses **Gemma 4** strictly for language tasks (intent parsing, SQL generation, and row explanation), while **deterministic code** handles AST validation, security guardrails, data fetching, cell-level verification, and receipt construction.
+
+```mermaid
+flowchart TD
+    User["User Question"] --> GemmaSQL["Gemma 4<br/>(Understand Intent & Generate SQL)"]
+    GemmaSQL --> ASTGuard{"sqlglot AST Guardrail<br/>(src/validate.py)"}
+    ASTGuard -- "Prohibited DML/DDL or Multi-stmt" --> Rejected["Rejected / Refused Status"]
+    ASTGuard -- "Valid Read-Only SELECT" --> LimitClamp["Deterministic LIMIT Clamping<br/>(Max 200 Rows)"]
+    LimitClamp --> Snowflake[("Snowflake Data Warehouse<br/>(Role: DM_READER)")]
+    Snowflake --> RowFlags["Code Flag Evaluation<br/>(Empty, Nulls, Row-cap hit)"]
+    RowFlags --> GemmaProse["Gemma 4<br/>(Prose Synthesis from Rows)"]
+    GemmaProse --> Verifier{"Code Verifier Engine<br/>(Cell & Relational Match)"}
+    Verifier -- "Claim Mismatch" --> CodeFallback["Deterministic Fallback Sentence"]
+    Verifier -- "Verified" --> Receipt["Receipt Builder<br/>(AST Parsed: Tables, Joins, Filters, Query ID)"]
+    Receipt --> FinalOutput["Final Verified Answer + Monospace Receipt"]
+```
 
 ---
 
-## Tech Stack & Tested Environment
+## Core System Design
 
-| Layer | Component | Version / Specification |
-| :--- | :--- | :--- |
-| **LLM Provider** | Google Gemma 4 (instruction-tuned) | Configured dynamically via `config.yaml` |
-| **SQL Engine** | Snowflake Data Cloud | Standard `COMPUTE_WH` (XS), `DM_READER` role |
-| **SQL Safety** | `sqlglot` | AST parser (no regex shortcuts) |
-| **Backend** | Python / FastAPI | Python 3.11+ tested |
-| **Frontend** | React 18, Vite, Tailwind CSS | Node.js v20+ tested |
-| **Testing** | `pytest` | 71 test cases across guardrails & validation |
-
-### Prerequisites
-1. **Google AI Studio API Key**: Required for Gemma 4 query interpretation and SQL generation.
-2. **Snowflake Account**: Free 30-day trial or standard account with `ACCOUNTADMIN` (to run setup) and a provisioned `COMPUTE_WH` warehouse.
+- **Language vs. Determinism Boundary**: Gemma 4 is restricted to semantic understanding and prose generation. All validation, computation, limits, and claim matching are enforced by deterministic Python code.
+- **Database Privilege Isolation (Target Architecture)**: Designed to execute queries exclusively under Snowflake's `DM_READER` role (SELECT-only on schema tables). DML/DDL mutations (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `MERGE`, etc.) are blocked by both AST guardrails and database role permissions.
+- **Verifiable SQL Receipts**: Designed to pair every response with an AST-parsed receipt detailing tables touched, joins applied, filters, and Snowflake Query ID.
+- **Dynamic Configuration**: Model identifiers, temperatures, and query thresholds are loaded dynamically from `config.yaml` — never hard-coded in Python.
 
 ---
 
@@ -46,7 +49,7 @@
 
 ## Project Structure
 
-Tracked repository structure as of Phase 1 baseline:
+Tracked repository structure:
 
 ```text
 Code-Blooded/
@@ -64,7 +67,7 @@ Code-Blooded/
 │   ├── __init__.py
 │   └── validate.py           # AST-based SQL guardrail engine (sqlglot)
 ├── tests/
-│   ├── test_guardrails.py    # DDL/DML rejection & injection test suite (40 tests)
+│   ├── test_guardrails.py    # DDL/DML rejection & injection test suite
 │   ├── test_validate.py      # sqlglot parsing & LIMIT clamping test suite
 │   └── test_verify.py        # Cell verification & claim checking test suite
 ├── web/                      # React + Vite + Tailwind workbench frontend
@@ -78,6 +81,24 @@ Code-Blooded/
 ---
 
 ## Setup & Reproduction
+
+### Current Implementation Status
+- **Implemented & Present in Repository**:
+  - AST-based SQL safety validator (`src/validate.py`)
+  - Full test suites (`tests/test_guardrails.py`, `tests/test_validate.py`, `tests/test_verify.py`)
+  - Ground-truth evaluation harness schema (`eval/questions.csv`)
+  - Evaluation runner with mock isolation and DM_READER connector (`eval/run_eval.py`)
+  - React workbench UI scaffold (`web/`)
+- **Pending Integration (Person A & Person B)**:
+  - FastAPI server endpoints (`api/`)
+  - LLM pipeline integration (`pipeline.py`)
+  - Secondary OWID indicator ingestion (`scripts/load_data.py`)
+  - Consolidated single-entrypoint runner (`run.py`)
+
+### Prerequisites
+1. **Google AI Studio API Key**: Configured in `.env` for Gemma 4 query interpretation.
+2. **Snowflake Account**: Trial or standard account with a provisioned `COMPUTE_WH` warehouse.
+3. **Environment**: Python 3.11+, Node.js (for frontend build).
 
 ### 1. Clone the Repository
 ```bash
@@ -97,7 +118,7 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-Open `.env` and fill in your credentials:
+Fill in your connection details in `.env`:
 ```ini
 GOOGLE_API_KEY=your_gemini_api_key
 SNOWFLAKE_ACCOUNT=your_account_identifier
@@ -115,82 +136,92 @@ pip install -r requirements.txt
 ```
 
 ### 4. Snowflake RBAC Initialization (Person A)
-Execute `sql/setup_snowflake.sql` in a Snowflake Worksheet or via SnowSQL as `ACCOUNTADMIN` to create the `DATAMIND` database, `OWID` schema, and `DM_READER` / `DM_LOADER` roles.
+Run `sql/setup_snowflake.sql` in a Snowflake Worksheet as `ACCOUNTADMIN` to create the `DATAMIND` database, `OWID` schema, and `COMPUTE_WH` warehouse grants.
 
 ### 5. Run the Test Suites
+Execute the test suites using `pytest`:
 ```bash
 python -m pytest tests/ -v
 ```
 
-### 6. Run the Frontend (Development)
+### 6. Run the Frontend Workbench
 ```bash
 cd web
 npm install
 npm run dev
 ```
-Open `http://localhost:3000` in your browser.  
-*(Note: Person B will provide the consolidated `python run.py` single-command entrypoint once FastAPI serves prebuilt `web/dist`).*
+Open `http://localhost:3000` (port configured in `web/vite.config.js`) in your browser.  
+*(Note: `python run.py` single-command entrypoint is scheduled once FastAPI serves prebuilt `web/dist`).*
 
 ---
 
 ## Datasets
 
-| Dataset | Schema / Table | Source | License / Access | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **Our World in Data (OWID)** | `DATAMIND.OWID.life_expectancy` | Our World in Data | CC BY 4.0 | Global life expectancy indicators across countries and years (1950–2021). |
-| **TPC-H Benchmark (SF1)** | `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.*` | TPC-H Benchmark | Snowflake Shared Sample Data | 8 standard relational tables (`CUSTOMER`, `ORDERS`, `LINEITEM`, `NATION`, `REGION`, `SUPPLIER`, `PART`, `PARTSUPP`) referenced live. Not redistributed. |
+| Dataset | Schema / Table | Source & Attribution | Description |
+| :--- | :--- | :--- | :--- |
+| **Our World in Data (OWID)** | `DATAMIND.OWID.life_expectancy` | Our World in Data (CC BY 4.0) — [TODO: upstream source URL] | Global life expectancy indicators across countries and years. |
+| **TPC-H Benchmark (SF1)** | `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.*` | Referenced live from Snowflake Shared Sample Data (not redistributed) | 8 standard relational tables (`CUSTOMER`, `ORDERS`, `LINEITEM`, `NATION`, `REGION`, `SUPPLIER`, `PART`, `PARTSUPP`). |
 
 ---
 
-## SQL Safety & Red-Team Guardrail Matrix
+## Red-Team Guardrail Matrix
 
-All SQL generated by Gemma 4 passes through `src/validate.py` before execution. The engine parses queries into a `sqlglot` AST and enforces the following policy:
+All SQL generated by the language model is validated by `src/validate.py` before execution. The AST engine enforces the following checks:
 
-| Test Case | Attempted SQL Syntax | Guardrail Action | Policy Rationale |
+| Policy Case | Attempted SQL Syntax | Guardrail Action | Corresponding Test Function |
 | :--- | :--- | :---: | :--- |
-| **Drop Table** | `DROP TABLE CUSTOMER;` | ❌ BLOCKED | DDL operations strictly rejected |
-| **Delete Rows** | `DELETE FROM ORDERS WHERE 1=1;` | ❌ BLOCKED | DML mutations strictly rejected |
-| **Data Insertion** | `INSERT INTO CUSTOMER VALUES (...);` | ❌ BLOCKED | DML mutations strictly rejected |
-| **Table Truncation**| `TRUNCATE TABLE LINEITEM;` | ❌ BLOCKED | Table wipes strictly rejected |
-| **Schema Alteration**| `ALTER TABLE CUSTOMER ADD COLUMN x;` | ❌ BLOCKED | Schema changes strictly rejected |
-| **Semicolon Chaining**| `SELECT 1; DROP TABLE CUSTOMER;` | ❌ BLOCKED | Multi-statement queries strictly blocked |
-| **Information Schema**| `SELECT * FROM INFORMATION_SCHEMA.TABLES;` | ❌ BLOCKED | Unlisted metadata tables blocked |
-| **Missing LIMIT** | `SELECT * FROM CUSTOMER;` | ⚠️ CLAMPED | Automatically appends `LIMIT 200` |
-| **Excessive LIMIT** | `SELECT * FROM ORDERS LIMIT 50000;` | ⚠️ CLAMPED | Automatically clamped to `LIMIT 200` |
-| **Safe SELECT** | `SELECT c.C_NAME, SUM(...) FROM CUSTOMER c...` | ✅ PASSED | Read-only queries on allowlisted tables permitted |
+| **DROP TABLE** | `DROP TABLE CUSTOMER;` | ❌ BLOCKED | `test_drop_table_rejected` |
+| **DELETE** | `DELETE FROM CUSTOMER WHERE C_CUSTKEY = 1;` | ❌ BLOCKED | `test_delete_rejected` |
+| **INSERT** | `INSERT INTO CUSTOMER (C_NAME) VALUES ('x');` | ❌ BLOCKED | `test_insert_rejected` |
+| **UPDATE** | `UPDATE CUSTOMER SET C_ACCTBAL = 0;` | ❌ BLOCKED | `test_update_rejected` |
+| **TRUNCATE** | `TRUNCATE TABLE CUSTOMER;` | ❌ BLOCKED | `test_truncate_rejected` |
+| **ALTER TABLE** | `ALTER TABLE CUSTOMER ADD COLUMN x VARCHAR;` | ❌ BLOCKED | `test_alter_table_rejected` |
+| **MERGE** | `MERGE INTO CUSTOMER USING ...;` | ❌ BLOCKED | `test_merge_rejected` |
+| **COPY INTO** | `COPY INTO CUSTOMER FROM @my_stage;` | ❌ BLOCKED | `test_copy_into_rejected` |
+| **CALL Procedure** | `CALL my_stored_procedure();` | ❌ BLOCKED | `test_call_rejected` |
+| **GRANT / REVOKE** | `GRANT ALL PRIVILEGES ON TABLE CUSTOMER...;` | ❌ BLOCKED | `test_grant_rejected`, `test_revoke_rejected` |
+| **CREATE TABLE** | `CREATE TABLE evil_copy AS SELECT ...;` | ❌ BLOCKED | `test_create_table_rejected` |
+| **Multi-Statement**| `SELECT * FROM CUSTOMER; DROP TABLE ORDERS;` | ❌ BLOCKED | `test_select_then_drop_rejected` |
+| **Unlisted Table** | `SELECT * FROM INFORMATION_SCHEMA.TABLES;` | ❌ BLOCKED | `test_unlisted_table_rejected` |
+| **Missing LIMIT** | `SELECT * FROM ORDERS;` | ⚠️ CLAMPED | Enforces `LIMIT 200` |
+| **Excessive LIMIT**| `SELECT * FROM ORDERS LIMIT 50000;` | ⚠️ CLAMPED | Clamped to `LIMIT 200` |
+| **Valid SELECT** | `SELECT C_NAME, C_ACCTBAL FROM CUSTOMER LIMIT 10;` | ✅ PASSED | `test_simple_select_passes` |
 
 ---
 
 ## Evaluation Harness (`eval/`)
 
-The evaluation framework consists of:
-1. **`eval/questions.csv`**: A 30-question ground-truth benchmark covering 6 distinct categories:
+1. **`eval/questions.csv`**: A 30-question ground-truth evaluation benchmark covering:
    - `single_table` (8 questions)
-   - `join` (8 questions, including 5 multi-table joins)
+   - `join` (8 questions, including multi-table joins)
    - `cte_multistep` (5 questions)
    - `ambiguous` (3 questions: 2 answered with stated assumptions, 1 true `clarify`)
-   - `empty_or_unsupported` (3 questions: tested for `empty` rowsets and out-of-domain `refused`)
+   - `empty_or_unsupported` (3 questions: testing `empty` rowsets and out-of-domain `refused`)
    - `followup` (3 multi-turn contextual questions)
-   - **Held-out split**: Exactly 10 questions tagged `held_out=true` (balanced across OWID and TPC-H).
+   - **Held-out subset**: 10 questions tagged held-out for evaluation.
 
-2. **`eval/run_eval.py`**: An independent evaluation runner that calls the API over HTTP, maintains its own separate Snowflake connection as `DM_READER`, and grades results by column-name matching, date/number normalisation, and tolerance thresholds.
+2. **`eval/run_eval.py`**: Independent runner that queries the API over HTTP, maintains its own separate Snowflake connection as `DM_READER`, and compares result sets using column-name matching, date/number normalisation, and tolerance thresholds.
 
 ### Running Evaluation
 ```bash
-# Offline simulation mode (tests runner logic, writes to git-ignored eval/results.mock.json)
+# Offline simulation mode (writes strictly to git-ignored eval/results.mock.json)
 python eval/run_eval.py --mock
 
 # Live evaluation mode (against running FastAPI service)
 python eval/run_eval.py --api-url http://localhost:8000
 ```
 
-> **Evaluation Transparency Notice**: All 30 ground-truth questions currently hold `status=draft`. Per handbook gate G3, headline accuracy strictly reports `0 verified rows` until queries are run live against Snowflake by the team and snapshot values are verified. No speculative numbers or unverified accuracy scores are published.
+> **Evaluation Notice**: Results are produced by `eval/run_eval.py`. All 30 ground-truth questions currently hold `status=draft`. Rows count toward headline accuracy only once their ground-truth data snapshots have been verified against live data by the team.
 
 ---
 
-## Known Limitations & Planned Enhancements
-- **OWID Multi-Table Ingestion**: In Phase 1, only `life_expectancy` is loaded in `DATAMIND.OWID`. Multi-table join questions are currently evaluated against `SNOWFLAKE_SAMPLE_DATA.TPCH_SF1` until Person A loads secondary OWID indicators (GDP per capita, CO₂).
-- **Read-Only Scope**: The system deliberately rejects all state modifications. Queries requiring temporary table creation or stored procedures are out of scope by design.
+## Troubleshooting
+
+- **Snowflake MFA / Key-Pair Authentication**: If your Snowflake user enforces Duo MFA or SSO, password authentication will time out. Configure key-pair authentication or set `authenticator='externalbrowser'` in your local configuration.
+- **Model Configuration**: Model names and parameters are read directly from `config.yaml`. To switch models or providers, update `config.yaml` rather than editing source code.
+- **`[TODO]` Technical Specifications**:
+  - *LLM Tier*: `[TODO: Gemma model runtime specifications, exact parameter tier, and benchmark latency to be confirmed post-pipeline integration]`
+  - *Data Attribution*: `[TODO: Add exact Our World in Data download timestamp, commit SHA, and upstream indicator URL]`
 
 ---
 
