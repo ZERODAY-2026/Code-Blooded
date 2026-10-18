@@ -11,6 +11,7 @@ export default defineConfig({
       '/switch-dataset': 'http://localhost:8000',
       '/eval-summary': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/audit': 'http://localhost:8000',
     }
   }
 })

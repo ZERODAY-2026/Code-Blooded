@@ -4,34 +4,38 @@ import { BarChart2, CheckCircle2, XCircle, Award, Target, Zap, Clock, Shield } f
 export default function EvalView({ evalSummary }) {
   const [filterCategory, setFilterCategory] = useState('all');
 
-  const summary = evalSummary || {
-    overall_accuracy: 100.0,
-    total_questions: 30,
-    passed_questions: 30,
-    category_accuracy: {
-      single_table: 100.0,
-      join: 100.0,
-      cte_multistep: 100.0,
-      ambiguous: 100.0,
-      empty_or_unsupported: 100.0,
-      followup: 100.0
-    },
-    category_counts: {
-      single_table: { total: 8, passed: 8 },
-      join: { total: 9, passed: 9 },
-      cte_multistep: { total: 5, passed: 5 },
-      ambiguous: { total: 3, passed: 3 },
-      empty_or_unsupported: { total: 3, passed: 3 },
-      followup: { total: 2, passed: 2 }
-    },
-    gemma_metrics: {
-      first_try_valid_json_pct: 100.0,
-      valid_sql_pct: 100.0,
-      repaired_after_retry_pct: 0.0
-    }
-  };
+  if (!evalSummary) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-slate-900 rounded-2xl p-8 text-white shadow-sm border border-slate-800">
+          <div className="flex items-center space-x-3 mb-3">
+            <Award className="h-7 w-7 text-amber-400" />
+            <h2 className="text-xl font-bold tracking-tight">Ground-Truth Benchmark Suite</h2>
+          </div>
+          <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
+            The evaluation benchmark consists of 30 hand-crafted questions across 6 core archetypes. All questions currently hold <span className="font-mono text-amber-300 bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-800/60">draft</span> status. Headline accuracy will be recorded once live data snapshots are verified against Snowflake.
+          </p>
 
+          <div className="mt-6 p-4 rounded-xl bg-slate-800/80 border border-slate-700 font-mono text-xs text-slate-300 space-y-1">
+            <div className="text-slate-400 font-semibold mb-1">To run evaluation and populate metrics:</div>
+            <div className="text-emerald-400">$ python eval/run_eval.py --api-url http://localhost:8000</div>
+            <div className="text-slate-400 mt-2">To run offline simulation:</div>
+            <div className="text-sky-400">$ python eval/run_eval.py --mock</div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap items-center gap-4 text-xs text-slate-400">
+            <span className="flex items-center gap-1.5"><Shield className="h-4 w-4 text-sky-400" /> 30 Benchmark Questions</span>
+            <span className="flex items-center gap-1.5"><Target className="h-4 w-4 text-amber-400" /> 10 Held-Out Questions</span>
+            <span className="flex items-center gap-1.5"><Zap className="h-4 w-4 text-emerald-400" /> 0 Verified Rows (Awaiting live run)</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const summary = evalSummary;
   const categories = Object.keys(summary.category_accuracy || {});
+
 
   return (
     <div className="space-y-6">

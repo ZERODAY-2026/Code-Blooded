@@ -180,6 +180,19 @@ class TestTableAllowlist:
         is_valid, error = validate_sql(sql, TPCH_TABLES)
         assert not is_valid, "Table in subquery must also be allowlist-checked"
 
+    def test_same_named_table_in_other_schema_rejected(self):
+        """Table name in allowlist, but qualified with an unauthorized schema must be rejected."""
+        sql = "SELECT * FROM OTHER_SCHEMA.CUSTOMER LIMIT 10"
+        is_valid, error = validate_sql(sql, TPCH_TABLES)
+        assert not is_valid, "CUSTOMER in unauthorized schema OTHER_SCHEMA must be rejected"
+
+    def test_fully_qualified_valid_table_passes(self):
+        """Fully-qualified valid tables in official database and schema must pass."""
+        sql = "SELECT * FROM SNOWFLAKE_SAMPLE_DATA.TPCH_SF1.CUSTOMER LIMIT 10"
+        is_valid, error = validate_sql(sql, TPCH_TABLES)
+        assert is_valid, f"Fully qualified valid table must pass. Got: {error}"
+
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Section D — Valid SELECT passes (handbook Section 12)

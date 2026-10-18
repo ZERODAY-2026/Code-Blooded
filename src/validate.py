@@ -116,12 +116,31 @@ def validate_sql(sql: str, allowed_tables: List[str]) -> Tuple[bool, str]:
         if table_name in cte_names:
             continue
 
-        # If table is qualified with db.schema.table, match the base table name
+        # Check base table name against allowlist
         if table_name not in allowed_set:
             return False, (
                 f"Table '{table_name}' is not in the allowlist for the active dataset. "
                 f"Permitted tables: {', '.join(sorted(allowed_set))}."
             )
+
+        # Validate schema and catalog qualification if present
+        schema_name = table_exp.db.upper() if table_exp.db else ""
+        catalog_name = table_exp.catalog.upper() if table_exp.catalog else ""
+
+        if schema_name:
+            if table_name in {"CUSTOMER", "ORDERS", "LINEITEM", "NATION", "REGION", "SUPPLIER", "PART", "PARTSUPP"}:
+                if schema_name != "TPCH_SF1":
+                    return False, f"Table '{table_name}' in unauthorized schema '{schema_name}' is not permitted."
+                if catalog_name and catalog_name != "SNOWFLAKE_SAMPLE_DATA":
+                    return False, f"Table '{table_name}' in unauthorized database '{catalog_name}' is not permitted."
+            elif table_name in {"LIFE_EXPECTANCY", "GDP_PER_CAPITA", "CO2", "POPULATION"}:
+                if schema_name != "OWID":
+                    return False, f"Table '{table_name}' in unauthorized schema '{schema_name}' is not permitted."
+                if catalog_name and catalog_name != "DATAMIND":
+                    return False, f"Table '{table_name}' in unauthorized database '{catalog_name}' is not permitted."
+            else:
+                return False, f"Unauthorized schema qualification '{schema_name}' on table '{table_name}'."
+
 
     return True, ""
 
