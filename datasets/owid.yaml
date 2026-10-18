@@ -1,0 +1,89 @@
+dataset: owid
+database: DATAMIND
+schema: OWID
+description: "Our World in Data global health, economic, environmental, and demographic indicators"
+
+tables:
+  life_expectancy:
+    description: "Period life expectancy at birth in years across nations, territories, and historical entities"
+    columns:
+      entity:
+        type: "VARCHAR"
+        description: "Country, territory, or regional entity name"
+        sample: "Japan"
+      code:
+        type: "VARCHAR"
+        description: "ISO 3-letter country code (NULL for regional aggregates)"
+        sample: "JPN"
+      year:
+        type: "INTEGER"
+        description: "Calendar year of observation (1950–2021)"
+        sample: 2019
+      life_expectancy:
+        type: "FLOAT"
+        description: "Life expectancy at birth in years"
+        sample: 84.36
+    primary_key: ["entity", "year"]
+
+  gdp_per_capita:
+    description: "Gross domestic product per capita adjusted for inflation and purchasing power parity (constant 2017 international $)"
+    columns:
+      entity:
+        type: "VARCHAR"
+        description: "Country, territory, or entity name"
+        sample: "United States"
+      code:
+        type: "VARCHAR"
+        description: "ISO 3-letter country code"
+        sample: "USA"
+      year:
+        type: "INTEGER"
+        description: "Calendar year of observation"
+        sample: 2019
+      gdp_per_capita:
+        type: "FLOAT"
+        description: "GDP per capita in constant 2017 international dollars"
+        sample: 62530.0
+    primary_key: ["entity", "year"]
+
+  co2:
+    description: "Annual production-based carbon dioxide (CO₂) emissions measured in million metric tons"
+    columns:
+      entity:
+        type: "VARCHAR"
+        description: "Country, territory, or entity name"
+        sample: "Germany"
+      code:
+        type: "VARCHAR"
+        description: "ISO 3-letter country code"
+        sample: "DEU"
+      year:
+        type: "INTEGER"
+        description: "Calendar year of observation"
+        sample: 2020
+      co2:
+        type: "FLOAT"
+        description: "Annual CO2 emissions in million metric tonnes"
+        sample: 644.3
+    primary_key: ["entity", "year"]
+
+  population:
+    description: "Total resident population estimates across countries and regions"
+    columns:
+      entity:
+        type: "VARCHAR"
+        description: "Country, territory, or entity name"
+        sample: "India"
+      code:
+        type: "VARCHAR"
+        description: "ISO 3-letter country code"
+        sample: "IND"
+      year:
+        type: "INTEGER"
+        description: "Calendar year of observation"
+        sample: 2021
+      population:
+        type: "BIGINT"
+        description: "Total resident population count"
+        sample: 1407563842
+    primary_key: ["entity", "year"]
