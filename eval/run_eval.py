@@ -137,7 +137,7 @@ class IndependentSnowflakeRunner:
         account = os.getenv("SNOWFLAKE_ACCOUNT")
         user = os.getenv("SNOWFLAKE_USER")
         password = os.getenv("SNOWFLAKE_PASSWORD")
-        warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH")
+        warehouse = os.getenv("SNOWFLAKE_WAREHOUSE", "DM_WH")
         role = os.getenv("SNOWFLAKE_ROLE", "DM_READER")
 
         if account and user and password:
