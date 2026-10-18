@@ -48,7 +48,7 @@ from src.models import (
     VerifyResult,
 )
 from src.pipeline import DataMindPipeline
-from src.validate import DatasetSchema
+from src.validate import DatasetSchema, SQLValidator
 
 logger = logging.getLogger(__name__)
 
@@ -105,28 +105,39 @@ def get_default_pipeline(request: Request = None) -> DataMindPipeline:
         try:
             from src.execute import execute_snowflake
 
-            def _live_exec(sql: str) -> ExecuteResult:
-                res = execute_snowflake(sql, timeout_s=cfg.limits.query_timeout_s)
-                if res.error:
-                    if os.environ.get("DEMO_MODE", "").lower() in ("true", "1", "yes"):
-                        return ExecuteResult(
-                            rows=RowSet(
-                                columns=["entity", "life_expectancy"],
-                                data=[
-                                    ["Japan", 84.4],
-                                    ["Switzerland", 83.8],
-                                    ["Singapore", 83.6],
-                                    ["Spain", 83.5],
-                                    ["Italy", 83.3],
-                                ],
-                            ),
-                            query_id="DEMO-SIMULATED-0001",
-                            timings_ms=res.timings_ms,
-                            flags=["simulated_demo_result", f"snowflake_unavailable: {res.error}"],
-                        )
-                return res
+            def build_live_executor(ds_schema: DatasetSchema):
+                target_db = getattr(ds_schema, "database", None) or os.environ.get("SNOWFLAKE_DATABASE", "DATAMIND").strip()
+                target_schema = getattr(ds_schema, "schema_name", None) or getattr(ds_schema, "schema", None) or os.environ.get("SNOWFLAKE_SCHEMA", "OWID").strip()
 
-            executor = _live_exec
+                def _live_exec(sql: str) -> ExecuteResult:
+                    res = execute_snowflake(
+                        sql,
+                        timeout_s=cfg.limits.query_timeout_s,
+                        database=target_db,
+                        schema=target_schema,
+                    )
+                    if res.error:
+                        if os.environ.get("DEMO_MODE", "").lower() in ("true", "1", "yes"):
+                            return ExecuteResult(
+                                rows=RowSet(
+                                    columns=["entity", "life_expectancy"],
+                                    data=[
+                                        ["Japan", 84.4],
+                                        ["Switzerland", 83.8],
+                                        ["Singapore", 83.6],
+                                        ["Spain", 83.5],
+                                        ["Italy", 83.3],
+                                    ],
+                                ),
+                                query_id="DEMO-SIMULATED-0001",
+                                timings_ms=res.timings_ms,
+                                flags=["simulated_demo_result", f"snowflake_unavailable: {res.error}"],
+                            )
+                    return res
+
+                return _live_exec
+
+            executor = build_live_executor(schema)
             logger.info("Configured Snowflake executor.")
         except Exception as err:
             logger.warning("Could not initialize Snowflake executor: %s", err)
@@ -400,11 +411,23 @@ def create_app(
                 )
             try:
                 new_schema = DatasetSchema.from_yaml(ds_path)
+                target_db = getattr(new_schema, "database", None) or os.environ.get("SNOWFLAKE_DATABASE", "DATAMIND").strip()
+                target_schema = getattr(new_schema, "schema_name", None) or getattr(new_schema, "schema", None) or os.environ.get("SNOWFLAKE_SCHEMA", "OWID").strip()
+
+                from src.execute import execute_snowflake
+                def _override_exec(sql: str) -> ExecuteResult:
+                    return execute_snowflake(
+                        sql,
+                        timeout_s=pipeline_dep.config.limits.query_timeout_s,
+                        database=target_db,
+                        schema=target_schema,
+                    )
+
                 active_pipeline = DataMindPipeline(
                     config=pipeline_dep.config,
                     schema=new_schema,
                     provider=pipeline_dep.provider,
-                    executor=pipeline_dep.executor,
+                    executor=_override_exec,
                     verifier=pipeline_dep.verifier,
                     validator=SQLValidator(schema=new_schema, max_rows=pipeline_dep.config.limits.max_rows),
                 )

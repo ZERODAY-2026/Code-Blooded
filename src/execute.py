@@ -101,15 +101,24 @@ def get_snowflake_connection_params() -> dict[str, Any]:
     return params
 
 
-def get_snowflake_connection():
+def get_snowflake_connection(database: str | None = None, schema: str | None = None):
     """Create and return a live Snowflake connection using DM_READER credentials."""
     import snowflake.connector
 
     params = get_snowflake_connection_params()
+    if database:
+        params["database"] = database
+    if schema:
+        params["schema"] = schema
     return snowflake.connector.connect(**params)
 
 
-def execute_query(sql: str, timeout_s: int = 30) -> dict[str, Any]:
+def execute_query(
+    sql: str,
+    timeout_s: int = 30,
+    database: str | None = None,
+    schema: str | None = None,
+) -> dict[str, Any]:
     """
     Execute a validated SQL query against Snowflake.
 
@@ -121,7 +130,7 @@ def execute_query(sql: str, timeout_s: int = 30) -> dict[str, Any]:
             "row_count": int,
         }
     """
-    conn = get_snowflake_connection()
+    conn = get_snowflake_connection(database=database, schema=schema)
     try:
         cur = conn.cursor()
         try:
@@ -147,13 +156,18 @@ def execute_query(sql: str, timeout_s: int = 30) -> dict[str, Any]:
         conn.close()
 
 
-def execute_snowflake(sql: str, timeout_s: int = 30) -> ExecuteResult:
+def execute_snowflake(
+    sql: str,
+    timeout_s: int = 30,
+    database: str | None = None,
+    schema: str | None = None,
+) -> ExecuteResult:
     """
     Execute validated SQL query and return a structured ExecuteResult model for DataMindPipeline.
     """
     t0 = time.monotonic()
     try:
-        res = execute_query(sql=sql, timeout_s=timeout_s)
+        res = execute_query(sql=sql, timeout_s=timeout_s, database=database, schema=schema)
         sf_ms = int((time.monotonic() - t0) * 1000)
         return ExecuteResult(
             rows=RowSet(columns=res["columns"], data=res["data"]),

@@ -399,6 +399,8 @@ def verify_answer(
     # If prose mentions an entity not found in any row string cell
     for candidate in candidate_entities:
         c_lower = candidate.lower()
+        if executed_sql and c_lower in executed_sql.lower():
+            continue
         matched_in_table = any(
             c_lower == s or c_lower in s or s in c_lower
             for s in all_table_strings
