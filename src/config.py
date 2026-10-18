@@ -13,9 +13,21 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
+
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+# Load .env if present
+try:
+    from dotenv import load_dotenv
+
+    _project_root = Path(__file__).resolve().parent.parent
+    _env_file = _project_root / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file)
+except ImportError:
+    pass
 
 
 # ── Semantic Layer Schema Models (Section 9) ─────────────────────────────────
@@ -98,40 +110,7 @@ class DatasetSchema(BaseModel):
         return list(self.tables.keys())
 
 
-# ── Global App Config Models (Section 9) ────────────────────────────────────
-
-class TemperatureConfig(BaseModel):
-    sql: float = 0.1
-    repair: float = 0.1
-    prose: float = 0.2
-    second_opinion: float = 0.7
-
-
-class LimitsConfig(BaseModel):
-    max_rows: int = 200
-    max_retries: int = 2
-    query_timeout_s: int = 30
-
-
-class AppConfig(BaseModel):
-    """Application-wide configuration loaded from config.yaml."""
-    model_config = ConfigDict(populate_by_name=True)
-
-    provider: str = "api"  # "api" or "ollama"
-    model: str = "gemma-4-31b-it"
-    local_model: str = "gemma-2-9b-it"
-    temperature: TemperatureConfig = Field(default_factory=TemperatureConfig)
-    prompt_token_budget: int = 3000
-    rows_to_gemma: int = 50
-    dataset: str = "datasets/owid.yaml"
-    limits: LimitsConfig = Field(default_factory=LimitsConfig)
-    cache_llm_responses: bool = False
-    self_check: bool = False
-    public_mode: bool = False
-    snowsight_base_url: str = ""
-
-
-# ── Loaders ──────────────────────────────────────────────────────────────────
+# ── Load dataset helper ───────────────────────────────────────────────────────
 
 def load_dataset(path: str | Path) -> DatasetSchema:
     """Load and validate a dataset semantic layer YAML file."""
@@ -148,17 +127,132 @@ def load_dataset(path: str | Path) -> DatasetSchema:
     return DatasetSchema.model_validate(data)
 
 
+# ── Global App Config Models (Section 9) ────────────────────────────────────
+
+class TemperatureConfig(BaseModel):
+    sql: float = 0.1
+    repair: float = 0.1
+    prose: float = 0.2
+    second_opinion: float = 0.7
+
+
+class LimitsConfig(BaseModel):
+    max_rows: int = 200
+    max_retries: int = 2
+    query_timeout_s: int = 30
+    max_tokens_sql: int = 8192
+    max_tokens_prose: int = 512
+
+
+class AppConfig(BaseModel):
+    """
+    Validated application configuration loaded from config.yaml.
+
+    No secrets are stored here.  API keys come exclusively from environment
+    variables accessed via get_api_key().
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    provider: Literal["api", "ollama"] = "api"
+    model: str = "gemma-4-31b-it"
+    local_model: str = ""
+    temperature: TemperatureConfig = Field(default_factory=TemperatureConfig)
+    prompt_token_budget: int = 3000
+    rows_to_gemma: int = 50
+    dataset: str = "datasets/owid.yaml"
+    limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    cache_llm_responses: bool = False
+    self_check: bool = False
+    public_mode: bool = False
+    snowsight_base_url: str = ""
+
+    @field_validator("model")
+    @classmethod
+    def model_must_be_set(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError(
+                "config.yaml: 'model' must be set to an explicit model identifier. "
+                "Look up available Gemma model IDs in your Google AI Studio console "
+                "and write the exact string here."
+            )
+        return v.strip()
+
+    @field_validator("model")
+    @classmethod
+    def model_must_identify_gemma(cls, v: str) -> str:
+        if "gemma" not in v.lower():
+            raise ValueError(
+                f"config.yaml: model '{v}' does not appear to identify a Gemma "
+                "model variant (expected the string 'gemma' to appear in the "
+                "model identifier)."
+            )
+        return v
+
+    @model_validator(mode="after")
+    def ollama_requires_local_model(self) -> "AppConfig":
+        if self.provider == "ollama" and not self.local_model.strip():
+            raise ValueError(
+                "config.yaml: 'local_model' must be set when provider is 'ollama'. "
+                "Run `ollama list` to find an available Gemma tag and set it."
+            )
+        return self
+
+    @field_validator("prompt_token_budget")
+    @classmethod
+    def token_budget_positive(cls, v: int) -> int:
+        if v < 256:
+            raise ValueError("prompt_token_budget must be at least 256 tokens.")
+        return v
+
+    @field_validator("rows_to_gemma")
+    @classmethod
+    def rows_positive(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("rows_to_gemma must be at least 1.")
+        return v
+
+
 def load_config(path: str | Path = "config.yaml") -> AppConfig:
-    """Load application configuration from config.yaml."""
-    path_obj = Path(path)
-    if not path_obj.is_file():
-        # Return default config if file does not exist
-        return AppConfig()
+    """Load and validate configuration from a YAML file."""
+    config_path = Path(path)
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Configuration file not found: {config_path.resolve()}\n"
+            "Copy config.yaml (the template) to this path and fill in required fields."
+        )
 
-    with open(path_obj, "r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    with config_path.open("r", encoding="utf-8") as fh:
+        raw: dict[str, Any] = yaml.safe_load(fh) or {}
 
-    if not isinstance(data, dict):
-        return AppConfig()
+    forbidden_keys = {
+        "api_key", "apikey", "google_api_key", "google_gemma_api_key",
+        "password", "secret", "token",
+    }
+    found = {k for k in raw if k.lower() in forbidden_keys}
+    if found:
+        raise ValueError(
+            f"config.yaml must not contain secrets. Remove these keys: {found}. "
+            "Put credentials in environment variables (see .env.example)."
+        )
 
-    return AppConfig.model_validate(data)
+    return AppConfig.model_validate(raw)
+
+
+_API_KEY_ENV_VAR = "GOOGLE_GEMMA_API_KEY"
+
+
+def get_api_key() -> str:
+    """Read the Google AI Studio API key from the environment."""
+    key = os.environ.get(_API_KEY_ENV_VAR, "").strip()
+    if not key:
+        raise EnvironmentError(
+            f"Environment variable {_API_KEY_ENV_VAR!r} is not set or is empty. "
+            "Set it in your local .env file (never in config.yaml or source code). "
+            "See .env.example for instructions."
+        )
+    return key
+
+
+def api_key_env_var_name() -> str:
+    """Return the name of the API key environment variable (for documentation only)."""
+    return _API_KEY_ENV_VAR
