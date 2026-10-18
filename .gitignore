@@ -1,4 +1,54 @@
-.env
-.venv/
+# Python
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.dist-info/
+# web/dist IS committed (handbook: judges need only Python, no Node required)
+!web/dist/
+build/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Node / React
+node_modules/
+web/.vite/
+*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Snowflake creds / secrets — NEVER commit these
+*.pem
+*.key
+snowflake_creds.json
+rsa_key*
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs
+*.log
+logs/
+
+# Mock eval results (never commit mock scores)
+*.mock.json
+*.mock.md
+eval/results.mock.json
+eval/results.mock.md
+
