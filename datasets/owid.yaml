@@ -1,0 +1,28 @@
+# datasets/owid.yaml — Our World in Data (OWID) semantic layer definition
+name: owid
+snowflake:
+  database: DATAMIND
+  schema: OWID
+tables:
+  life_expectancy:
+    description: Life expectancy at birth by country and year
+    columns:
+      entity:
+        type: text
+        description: Country or region name
+        synonyms: [country, nation]
+      code:
+        type: text
+        description: ISO3 code, null for regional aggregations
+      year:
+        type: int
+        description: Calendar year
+      life_expectancy:
+        type: float
+        description: Life expectancy in years at birth
+        sample_values: [72.6, 81.3]
+joins: []
+notes: []
+examples:
+  - q: "Which 5 countries had the highest life expectancy in 2019?"
+    sql: "SELECT entity, life_expectancy FROM life_expectancy WHERE year = 2019 ORDER BY life_expectancy DESC LIMIT 5;"

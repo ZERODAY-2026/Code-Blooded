@@ -1,0 +1,70 @@
+# DataMind Receipts — configuration template
+# ─────────────────────────────────────────────────────────────────────────────
+# Copy this file to config.yaml and fill in required fields.
+# NEVER commit config.yaml with real model names that reveal your account access.
+# NEVER put API keys, passwords, or account identifiers in this file.
+# All secrets must be environment variables (see .env.example).
+#
+# NOTE (Person A coordination): execution-time resource limits (warehouse size,
+# statement timeout, credit quota) are enforced in Snowflake via setup_snowflake.sql
+# and in src/execute.py. The limits below are application-layer guardrails only.
+# ─────────────────────────────────────────────────────────────────────────────
+
+provider: api           # "api" | "ollama"
+
+# REQUIRED. Exact model identifier from your Google AI Studio console.
+# Must identify a Gemma model variant (the string must contain "gemma",
+# case-insensitive). This is a config-level string check only — it does NOT
+# prove what model the API actually serves at runtime.
+# Examples (verify availability for your account on the day of the event):
+#   gemma-3-27b-it
+#   gemma-4-31b-it
+#   gemma-4-26b-a4b-it
+model: ""
+
+# Required when provider=ollama. Exact tag from `ollama list`.
+# Do not assume a Gemma 4 tag exists locally; verify with `ollama list` first.
+local_model: ""
+
+temperature:
+  sql: 0.1              # text-to-SQL generation — low for determinism
+  repair: 0.1           # SQL repair — low for determinism
+  prose: 0.2            # plain-language explanation — slightly higher
+  second_opinion: 0.7   # optional self-consistency check (self_check: true only)
+
+# Token budget for schema pruning — keeps the local model prompt under its context limit.
+# The prune step trims schema text to fit; matters most for Ollama.
+prompt_token_budget: 3000
+
+# Maximum result rows forwarded to the prose (explain) call.
+rows_to_gemma: 50
+
+# Path to the active dataset semantic-layer file. Person A creates these files.
+dataset: datasets/owid.yaml
+
+limits:
+  # Application-layer row cap. Snowflake's own limits (timeout, credit monitor)
+  # are set by Person A in setup_snowflake.sql and execute.py.
+  max_rows: 200
+  # Maximum SQL repair attempts. After this, pipeline returns a structured failure.
+  max_retries: 2
+  # Statement timeout hint passed to execute.py. Enforcement is in Snowflake.
+  query_timeout_s: 30
+
+# Keep false in demo and public mode. Cached answers must never bypass a live
+# Snowflake query — the mandatory feature check requires real query-time compute.
+cache_llm_responses: false
+
+# Optional second SQL for consistency checking. Build only after eval targets are met.
+# Doubles Gemma API calls when enabled.
+self_check: false
+
+# Set true for any hosted/public deployment: disables dataset switching and
+# mutation controls; enables per-IP rate limiting. Never expose DM_LOADER
+# credentials to the web app.
+public_mode: false
+
+# Optional. When set, the receipt links the Snowflake query ID to Snowsight.
+# Judges cannot open your Snowsight; the query ID and SQL are always shown in
+# the app regardless of this setting.
+snowsight_base_url: ""
