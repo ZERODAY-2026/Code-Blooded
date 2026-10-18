@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
@@ -464,6 +465,19 @@ def run_evaluation(
             gen_sql = api_resp.get("sql", "")
             detected_model = api_resp.get("model", detected_model)
             retries = api_resp.get("retries", 0)
+            gemma_calls = api_resp.get("gemma_calls", [])
+
+            # Extract metrics from gemma_calls if provided, otherwise fallback to retries
+            first_try_json = retries == 0
+            first_try_sql = bool(gen_sql)
+            repaired = retries > 0
+
+            if isinstance(gemma_calls, list) and len(gemma_calls) > 0:
+                first_call = gemma_calls[0]
+                if isinstance(first_call, dict):
+                    first_try_json = first_call.get("valid_json", first_try_json)
+                    first_try_sql = first_call.get("valid_sql", first_try_sql)
+                    repaired = any(c.get("repaired", False) or c.get("role") == "repair" for c in gemma_calls)
 
             # ── Grading ──
 

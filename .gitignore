@@ -44,3 +44,10 @@ htmlcov/
 # Logs
 *.log
 logs/
+
+# Mock eval results (never commit mock scores)
+*.mock.json
+*.mock.md
+eval/results.mock.json
+eval/results.mock.md
+
