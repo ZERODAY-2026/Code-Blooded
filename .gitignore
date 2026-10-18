@@ -5,7 +5,9 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
-dist/
+*.dist-info/
+# web/dist IS committed (handbook: judges need only Python, no Node required)
+!web/dist/
 build/
 *.egg
 
