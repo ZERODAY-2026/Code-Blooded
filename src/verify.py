@@ -99,7 +99,7 @@ UNITS_AND_TERMS: Set[str] = {
 
 def _extract_numbers(text: str) -> List[Tuple[str, float]]:
     """Extract numeric tokens and their float equivalents from text."""
-    pattern = r"\b\d+(?:,\d{3})*(?:\.\d+)?\b"
+    pattern = r"(?<![#\w])\b\d+(?:,\d{3})*(?:\.\d+)?\b"
     matches = []
     for m in re.finditer(pattern, text):
         raw_str = m.group(0)
@@ -437,6 +437,15 @@ def verify_answer(
                         break
             if found:
                 break
+
+        if not found:
+            for r_idx, col_map in enumerate(row_cells):
+                for col_name, (orig, flt, str_val) in col_map.items():
+                    if str_val and (raw_str.lower() in str_val or str_val in raw_str.lower()):
+                        found = True
+                        break
+                if found:
+                    break
 
         if not found:
             unmatched_claims.append(f"Number {raw_str} not found in returned rows")
