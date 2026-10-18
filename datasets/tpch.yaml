@@ -1,106 +1,309 @@
-dataset: tpch
-database: SNOWFLAKE_SAMPLE_DATA
-schema: TPCH_SF1
-description: "TPC-H Decision Support Benchmark (Scale Factor 1 ~ 1GB) hosted in Snowflake shared sample data"
+# datasets/tpch.yaml
+# Semantic layer for the TPC-H benchmark dataset (read-only).
+#
+# Source: Snowflake's shared SNOWFLAKE_SAMPLE_DATA.TPCH_SF1 (scale factor 1).
+# Licence: TPC-H benchmark specification — reference only, data is not
+# copied into this repository (Section 4, G4).
+#
+# This file is the config-only second dataset.  Switching to it requires
+# only changing `dataset: datasets/tpch.yaml` in config.yaml — no Python
+# code changes.  No demo_mutation block because SNOWFLAKE_SAMPLE_DATA is
+# shared and read-only (AGENTS.md Mistake #1).
+
+name: tpch
+
+snowflake:
+  database: SNOWFLAKE_SAMPLE_DATA
+  schema: TPCH_SF1
 
 tables:
-  CUSTOMER:
-    description: "Customer demographic and account balance records (150,000 rows)"
+  customer:
+    description: Registered customers who place orders
     columns:
-      C_CUSTKEY: {type: "NUMBER(38,0)", description: "Primary identifier for customer", sample: 1}
-      C_NAME: {type: "VARCHAR(25)", description: "Customer name formatted as Customer#000000001", sample: "Customer#000000001"}
-      C_ADDRESS: {type: "VARCHAR(40)", description: "Customer street address", sample: "IVhzIApeRbVoAl"}
-      C_NATIONKEY: {type: "NUMBER(38,0)", description: "Foreign key reference to NATION.N_NATIONKEY", sample: 15}
-      C_PHONE: {type: "VARCHAR(15)", description: "Customer telephone contact", sample: "25-989-741-2972"}
-      C_ACCTBAL: {type: "NUMBER(12,2)", description: "Customer account balance (can be negative)", sample: 711.56}
-      C_MKTSEGMENT: {type: "VARCHAR(10)", description: "Market segment: AUTOMOBILE, BUILDING, FURNITURE, MACHINERY, HOUSEHOLD", sample: "BUILDING"}
-      C_COMMENT: {type: "VARCHAR(117)", description: "Descriptive remarks", sample: "regular requests"}
-    primary_key: ["C_CUSTKEY"]
+      c_custkey:
+        type: int
+        description: Unique customer identifier (primary key)
+        synonyms: [customer id, customer key, cust id]
+      c_name:
+        type: text
+        description: Customer name
+        synonyms: [customer name, name]
+      c_address:
+        type: text
+        description: Street address of the customer
+        synonyms: [address]
+      c_nationkey:
+        type: int
+        description: Foreign key to the nation table (N_NATIONKEY)
+        synonyms: [nation id, nation key]
+      c_phone:
+        type: text
+        description: Customer phone number
+        synonyms: [phone, telephone]
+      c_acctbal:
+        type: float
+        description: Account balance in dollars
+        sample_values: [711.56, 9255.67]
+        synonyms: [account balance, balance]
+      c_mktsegment:
+        type: text
+        description: Market segment the customer belongs to
+        sample_values: ["BUILDING", "AUTOMOBILE", "MACHINERY", "HOUSEHOLD", "FURNITURE"]
+        synonyms: [market segment, segment]
+      c_comment:
+        type: text
+        description: Free-text comment
 
-  ORDERS:
-    description: "Customer purchasing orders (1,500,000 rows)"
+  orders:
+    description: Purchase orders placed by customers
     columns:
-      O_ORDERKEY: {type: "NUMBER(38,0)", description: "Primary identifier for order", sample: 1}
-      O_CUSTKEY: {type: "NUMBER(38,0)", description: "Foreign key reference to CUSTOMER.C_CUSTKEY", sample: 36901}
-      O_ORDERSTATUS: {type: "VARCHAR(1)", description: "Status: O (open), F (fulfilled), P (pending)", sample: "O"}
-      O_TOTALPRICE: {type: "NUMBER(12,2)", description: "Total billed price for the order", sample: 173665.47}
-      O_ORDERDATE: {type: "DATE", description: "Date order was placed (1992–1998)", sample: "1996-01-02"}
-      O_ORDERPRIORITY: {type: "VARCHAR(15)", description: "Priority tier: 1-URGENT, 2-HIGH, 3-MEDIUM, 4-NOT SPECIFIED, 5-LOW", sample: "5-LOW"}
-      O_CLERK: {type: "VARCHAR(15)", description: "Order processing clerk identifier", sample: "Clerk#000000951"}
-      O_SHIPPRIORITY: {type: "NUMBER(38,0)", description: "Shipping priority indicator", sample: 0}
-      O_COMMENT: {type: "VARCHAR(79)", description: "Clerk remarks", sample: "regular, pending instructions"}
-    primary_key: ["O_ORDERKEY"]
+      o_orderkey:
+        type: int
+        description: Unique order identifier (primary key)
+        synonyms: [order id, order key, order number]
+      o_custkey:
+        type: int
+        description: Foreign key to the customer table (C_CUSTKEY)
+        synonyms: [customer id, customer key]
+      o_orderstatus:
+        type: text
+        description: "Order status: F = fulfilled, O = open, P = partial"
+        sample_values: ["F", "O", "P"]
+        synonyms: [status, order status]
+      o_totalprice:
+        type: float
+        description: Total price of the order in dollars
+        sample_values: [173665.47, 46929.18]
+        synonyms: [total, total price, order total, price, amount]
+      o_orderdate:
+        type: date
+        description: Date the order was placed (YYYY-MM-DD)
+        synonyms: [order date, date, placed on]
+      o_orderpriority:
+        type: text
+        description: Priority level of the order
+        sample_values: ["1-URGENT", "2-HIGH", "3-MEDIUM", "4-NOT SPECIFIED", "5-LOW"]
+        synonyms: [priority, order priority]
+      o_clerk:
+        type: text
+        description: Identifier of the clerk who processed the order
+        synonyms: [clerk, processed by]
+      o_shippriority:
+        type: int
+        description: Shipping priority (integer code)
+        synonyms: [shipping priority]
+      o_comment:
+        type: text
+        description: Free-text comment
 
-  LINEITEM:
-    description: "Individual item components and pricing within each order (6,001,215 rows)"
+  lineitem:
+    description: Individual line items within an order (one row per product per order)
     columns:
-      L_ORDERKEY: {type: "NUMBER(38,0)", description: "Foreign key reference to ORDERS.O_ORDERKEY", sample: 1}
-      L_PARTKEY: {type: "NUMBER(38,0)", description: "Foreign key reference to PART.P_PARTKEY", sample: 155190}
-      L_SUPPKEY: {type: "NUMBER(38,0)", description: "Foreign key reference to SUPPLIER.S_SUPPKEY", sample: 7706}
-      L_LINENUMBER: {type: "NUMBER(38,0)", description: "Line item sequence number within order", sample: 1}
-      L_QUANTITY: {type: "NUMBER(12,2)", description: "Quantity of items ordered", sample: 17.00}
-      L_EXTENDEDPRICE: {type: "NUMBER(12,2)", description: "Extended item list price (before discount)", sample: 21168.23}
-      L_DISCOUNT: {type: "NUMBER(12,2)", description: "Discount percentage rate (0.00 to 0.10)", sample: 0.04}
-      L_TAX: {type: "NUMBER(12,2)", description: "Tax percentage rate", sample: 0.02}
-      L_RETURNFLAG: {type: "VARCHAR(1)", description: "Return status flag: N (normal), R (returned), A (accepted)", sample: "N"}
-      L_LINESTATUS: {type: "VARCHAR(1)", description: "Line item fulfillment status: O (open), F (finished)", sample: "O"}
-      L_SHIPDATE: {type: "DATE", description: "Date item was shipped", sample: "1996-03-13"}
-      L_COMMITDATE: {type: "DATE", description: "Committed delivery date", sample: "1996-04-14"}
-      L_RECEIPTDATE: {type: "DATE", description: "Receipt date by customer", sample: "1996-03-21"}
-      L_SHIPINSTRUCT: {type: "VARCHAR(25)", description: "Shipping instruction (e.g. DELIVER IN PERSON)", sample: "DELIVER IN PERSON"}
-      L_SHIPMODE: {type: "VARCHAR(10)", description: "Shipping transit mode: AIR, SHIP, TRUCK, MAIL, REG AIR, FOB, RAIL", sample: "TRUCK"}
-      L_COMMENT: {type: "VARCHAR(44)", description: "Line item commentary", sample: "egular courts"}
-    primary_key: ["L_ORDERKEY", "L_LINENUMBER"]
+      l_orderkey:
+        type: int
+        description: Foreign key to the orders table (O_ORDERKEY)
+        synonyms: [order id, order key]
+      l_partkey:
+        type: int
+        description: Foreign key to the part table (P_PARTKEY)
+        synonyms: [part id, part key]
+      l_suppkey:
+        type: int
+        description: Foreign key to the supplier table (S_SUPPKEY)
+        synonyms: [supplier id, supplier key]
+      l_linenumber:
+        type: int
+        description: Line item sequence number within the order
+        synonyms: [line number, item number]
+      l_quantity:
+        type: float
+        description: Quantity of the item ordered
+        sample_values: [17.0, 36.0]
+        synonyms: [qty, quantity, units]
+      l_extendedprice:
+        type: float
+        description: Extended price (quantity × list price) in dollars
+        sample_values: [21168.23, 45983.16]
+        synonyms: [extended price, line price, price]
+      l_discount:
+        type: float
+        description: Discount percentage applied to the line item (0.00 to 0.10)
+        sample_values: [0.04, 0.09]
+        synonyms: [discount, discount rate]
+      l_tax:
+        type: float
+        description: Tax rate applied to the line item (0.00 to 0.08)
+        sample_values: [0.02, 0.06]
+        synonyms: [tax, tax rate]
+      l_returnflag:
+        type: text
+        description: "Return flag: R = returned, A = accepted, N = none"
+        sample_values: ["R", "A", "N"]
+        synonyms: [return flag, return status]
+      l_linestatus:
+        type: text
+        description: "Line status: O = open, F = shipped/fulfilled"
+        sample_values: ["O", "F"]
+        synonyms: [line status, status]
+      l_shipdate:
+        type: date
+        description: Date the item was shipped
+        synonyms: [ship date, shipped on, shipping date]
+      l_commitdate:
+        type: date
+        description: Committed delivery date
+        synonyms: [commit date, committed date, delivery date]
+      l_receiptdate:
+        type: date
+        description: Date the item was received by the customer
+        synonyms: [receipt date, received on, received date]
+      l_shipinstruct:
+        type: text
+        description: Shipping instruction
+        sample_values: ["DELIVER IN PERSON", "COLLECT COD", "NONE", "TAKE BACK RETURN"]
+        synonyms: [shipping instruction, ship instruction]
+      l_shipmode:
+        type: text
+        description: Mode of shipment
+        sample_values: ["TRUCK", "MAIL", "REG AIR", "AIR", "FOB", "RAIL", "SHIP"]
+        synonyms: [ship mode, shipping mode, shipping method]
+      l_comment:
+        type: text
+        description: Free-text comment
 
-  NATION:
-    description: "Country and nation reference master (25 rows)"
+  supplier:
+    description: Suppliers who provide parts and fulfill line items
     columns:
-      N_NATIONKEY: {type: "NUMBER(38,0)", description: "Primary identifier for nation", sample: 0}
-      N_NAME: {type: "VARCHAR(25)", description: "Standard nation name (e.g. JAPAN, UNITED STATES, BRAZIL)", sample: "ALGERIA"}
-      N_REGIONKEY: {type: "NUMBER(38,0)", description: "Foreign key reference to REGION.R_REGIONKEY", sample: 0}
-      N_COMMENT: {type: "VARCHAR(152)", description: "Geopolitical remarks", sample: " haggle"}
-    primary_key: ["N_NATIONKEY"]
+      s_suppkey:
+        type: int
+        description: Unique supplier identifier (primary key)
+        synonyms: [supplier id, supplier key, supp id]
+      s_name:
+        type: text
+        description: Supplier name
+        synonyms: [supplier name, name]
+      s_address:
+        type: text
+        description: Street address of the supplier
+        synonyms: [address]
+      s_nationkey:
+        type: int
+        description: Foreign key to the nation table (N_NATIONKEY)
+        synonyms: [nation id, nation key]
+      s_phone:
+        type: text
+        description: Supplier phone number
+        synonyms: [phone, telephone]
+      s_acctbal:
+        type: float
+        description: Account balance in dollars
+        sample_values: [5765.94, 3699.40]
+        synonyms: [account balance, balance]
+      s_comment:
+        type: text
+        description: Free-text comment
 
-  REGION:
-    description: "Continental geographic regions (5 rows: AFRICA, AMERICA, ASIA, EUROPE, MIDDLE EAST)"
+  nation:
+    description: Nation/country lookup table (25 nations)
     columns:
-      R_REGIONKEY: {type: "NUMBER(38,0)", description: "Primary identifier for continental region", sample: 0}
-      R_NAME: {type: "VARCHAR(25)", description: "Region name", sample: "AFRICA"}
-      R_COMMENT: {type: "VARCHAR(152)", description: "Regional commentary", sample: "lar deposits"}
-    primary_key: ["R_REGIONKEY"]
+      n_nationkey:
+        type: int
+        description: Unique nation identifier (primary key)
+        synonyms: [nation id, nation key, country id]
+      n_name:
+        type: text
+        description: Nation name (uppercase, e.g. GERMANY, UNITED STATES)
+        sample_values: ["GERMANY", "UNITED STATES", "FRANCE", "JAPAN", "BRAZIL"]
+        synonyms: [nation, country, country name]
+      n_regionkey:
+        type: int
+        description: Foreign key to the region table (R_REGIONKEY)
+        synonyms: [region id, region key]
+      n_comment:
+        type: text
+        description: Free-text comment
 
-  SUPPLIER:
-    description: "Component vendors and supplier organizations (10,000 rows)"
+  region:
+    description: Geographic region lookup table (5 regions)
     columns:
-      S_SUPPKEY: {type: "NUMBER(38,0)", description: "Primary identifier for supplier", sample: 1}
-      S_NAME: {type: "VARCHAR(25)", description: "Supplier corporate name", sample: "Supplier#000000001"}
-      S_ADDRESS: {type: "VARCHAR(40)", description: "Supplier street address", sample: "N kD4on9OM Ipw3tUs7Mm"}
-      S_NATIONKEY: {type: "NUMBER(38,0)", description: "Foreign key reference to NATION.N_NATIONKEY", sample: 17}
-      S_PHONE: {type: "VARCHAR(15)", description: "Telephone number", sample: "27-918-335-1736"}
-      S_ACCTBAL: {type: "NUMBER(12,2)", description: "Supplier account balance", sample: 5755.94}
-      S_COMMENT: {type: "VARCHAR(101)", description: "Supplier commentary", sample: "each accounts"}
-    primary_key: ["S_SUPPKEY"]
+      r_regionkey:
+        type: int
+        description: Unique region identifier (primary key)
+        synonyms: [region id, region key]
+      r_name:
+        type: text
+        description: Region name (uppercase)
+        sample_values: ["AFRICA", "AMERICA", "ASIA", "EUROPE", "MIDDLE EAST"]
+        synonyms: [region, region name, continent]
+      r_comment:
+        type: text
+        description: Free-text comment
 
-  PART:
-    description: "Catalog of industrial machinery parts and components (200,000 rows)"
-    columns:
-      P_PARTKEY: {type: "NUMBER(38,0)", description: "Primary identifier for part", sample: 1}
-      P_NAME: {type: "VARCHAR(55)", description: "Part descriptive name", sample: "goldenrod lavender spring chocolate lace"}
-      P_MFGR: {type: "VARCHAR(25)", description: "Manufacturing organization", sample: "Manufacturer#1"}
-      P_BRAND: {type: "VARCHAR(10)", description: "Brand name", sample: "Brand#13"}
-      P_TYPE: {type: "VARCHAR(25)", description: "Material specifications", sample: "PROMO BURNISHED COPPER"}
-      P_SIZE: {type: "NUMBER(38,0)", description: "Part dimension integer size", sample: 7}
-      P_CONTAINER: {type: "VARCHAR(10)", description: "Packaging container type", sample: "JUMBO PKG"}
-      P_RETAILPRICE: {type: "NUMBER(12,2)", description: "Suggested retail unit price", sample: 901.00}
-      P_COMMENT: {type: "VARCHAR(23)", description: "Catalog commentary", sample: "final excuses"}
-    primary_key: ["P_PARTKEY"]
+joins:
+  # Customer ↔ Orders
+  - from_table: orders
+    to_table: customer
+    "on": "orders.o_custkey = customer.c_custkey"
 
-  PARTSUPP:
-    description: "Part-supplier availability relationship and replenishment pricing (800,000 rows)"
-    columns:
-      PS_PARTKEY: {type: "NUMBER(38,0)", description: "Composite foreign key reference to PART.P_PARTKEY", sample: 1}
-      PS_SUPPKEY: {type: "NUMBER(38,0)", description: "Composite foreign key reference to SUPPLIER.S_SUPPKEY", sample: 2}
-      PS_AVAILQTY: {type: "NUMBER(38,0)", description: "Available stock on hand", sample: 3325}
-      PS_SUPPLYCOST: {type: "NUMBER(12,2)", description: "Unit acquisition cost from supplier", sample: 771.64}
-      PS_COMMENT: {type: "VARCHAR(199)", description: "Replenishment commentary", sample: "ironic dependencies"}
-    primary_key: ["PS_PARTKEY", "PS_SUPPKEY"]
+  # Orders ↔ Lineitem
+  - from_table: lineitem
+    to_table: orders
+    "on": "lineitem.l_orderkey = orders.o_orderkey"
+
+  # Lineitem ↔ Supplier
+  - from_table: lineitem
+    to_table: supplier
+    "on": "lineitem.l_suppkey = supplier.s_suppkey"
+
+  # Customer ↔ Nation
+  - from_table: customer
+    to_table: nation
+    "on": "customer.c_nationkey = nation.n_nationkey"
+
+  # Supplier ↔ Nation
+  - from_table: supplier
+    to_table: nation
+    "on": "supplier.s_nationkey = nation.n_nationkey"
+
+  # Nation ↔ Region
+  - from_table: nation
+    to_table: region
+    "on": "nation.n_regionkey = region.r_regionkey"
+
+notes:
+  - "TPC-H is a read-only shared dataset in SNOWFLAKE_SAMPLE_DATA; no INSERT, UPDATE, or DELETE is possible."
+  - "Order dates range from 1992-01-01 to 1998-08-02."
+  - "Nation names and region names are stored in uppercase."
+  - "Monetary values (prices, balances) are in dollars with two decimal places."
+
+examples:
+  - q: "Which 10 customers have the highest account balance?"
+    sql: >-
+      SELECT c_name, c_acctbal
+      FROM customer
+      ORDER BY c_acctbal DESC
+      LIMIT 10
+
+  - q: "What is the total revenue by nation for orders placed in 1995?"
+    sql: >-
+      SELECT n.n_name AS nation,
+             SUM(l.l_extendedprice * (1 - l.l_discount)) AS revenue
+      FROM customer c
+      JOIN orders o ON c.c_custkey = o.o_custkey
+      JOIN lineitem l ON o.o_orderkey = l.l_orderkey
+      JOIN nation n ON c.c_nationkey = n.n_nationkey
+      WHERE o.o_orderdate >= '1995-01-01'
+        AND o.o_orderdate < '1996-01-01'
+      GROUP BY n.n_name
+      ORDER BY revenue DESC
+      LIMIT 25
+
+  - q: "How many orders were placed in each year?"
+    sql: >-
+      SELECT EXTRACT(YEAR FROM o_orderdate) AS order_year,
+             COUNT(*) AS order_count
+      FROM orders
+      GROUP BY order_year
+      ORDER BY order_year
+
+# No demo_mutation block — SNOWFLAKE_SAMPLE_DATA is shared and read-only.

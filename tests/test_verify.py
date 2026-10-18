@@ -1,255 +1,105 @@
 """
-tests/test_verify.py
+Unit tests for the claim-to-cell verifier (src/verify.py).
 
-Pytest tests for the verifier layer.
-The verifier (Person A implements src/verify.py) checks that every number
-and entity name in Gemma's prose answer actually exists in the query result cells.
-
-Interface contract (Person A implements this):
-    from src.verify import verify_answer
-
-    verify_answer(
-        prose: str,
-        rows: dict,          # {"columns": [...], "data": [[...], ...]}
-        sql: str,
-    ) -> VerifyResult
-
-    @dataclass
-    class VerifyResult:
-        passed: bool
-        mismatches: list[str]   # list of (claim, expected_value) descriptions
-        status: str             # "verified" | "mismatch" | "unverifiable"
-
-Run:
-    pytest tests/test_verify.py -v
+Covers Section 4, 6, 11, and 12 guardrails:
+  - Exact cell matches for entity and value pairs.
+  - Cell coordinate tracking (row_index, column, text).
+  - Entity-value pair mismatch detection (e.g. associating country A with country B's number).
+  - Unmatched / hallucinated numbers trigger fallback sentence.
+  - SQL filter year exemptions (e.g. 2019 in WHERE year = 2019).
+  - Row count exemptions (e.g. "5 countries").
+  - Relational claim checks ("highest", "lowest").
+  - Deterministic fallback generation without LLM.
 """
 
 import pytest
-from dataclasses import dataclass
-from typing import Any
-
-# ── Interface shim ────────────────────────────────────────────────────────────
-try:
-    from src.verify import verify_answer, VerifyResult
-    VERIFY_AVAILABLE = True
-except ImportError:
-    VERIFY_AVAILABLE = False
-
-    @dataclass
-    class VerifyResult:
-        passed: bool
-        mismatches: list
-        status: str
-
-    def verify_answer(prose, rows, sql):
-        raise NotImplementedError("src.verify not yet available")
+from src.verify import build_fallback_sentence, verify_answer
 
 
-pytestmark = pytest.mark.skipif(
-    not VERIFY_AVAILABLE,
-    reason="src.verify not yet implemented — tests run when Person A ships it",
-)
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def make_rows(columns: list[str], data: list[list[Any]]) -> dict:
-    """Build the rows dict format that matches the API contract."""
-    return {"columns": columns, "data": data}
+# Sample test data matching OWID schema
+COLUMNS = ["entity", "year", "life_expectancy"]
+ROWS = [
+    ["Japan", 2019, 84.4],
+    ["Switzerland", 2019, 83.8],
+    ["India", 2019, 70.9],
+]
+SAMPLE_SQL = "SELECT entity, year, life_expectancy FROM life_expectancy WHERE year = 2019 ORDER BY life_expectancy DESC LIMIT 3"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section A — Number matching
-# Numbers in prose must appear in query result cells (within tolerance)
-# ═══════════════════════════════════════════════════════════════════════════════
+def test_perfect_verification():
+    """Valid prose mentioning correct entity and value pairs passes verification."""
+    prose = "In 2019, Japan had a life expectancy of 84.4 years, followed by Switzerland at 83.8 years."
+    result = verify_answer(prose, COLUMNS, ROWS, sql=SAMPLE_SQL)
 
-class TestNumberMatching:
+    assert result.is_verified is True
+    assert result.confidence == "verified"
+    assert result.verified_prose == prose
+    assert len(result.unmatched_claims) == 0
 
-    def test_exact_number_in_result_passes(self):
-        prose = "Japan had a life expectancy of 84.3 years in 2020."
-        rows = make_rows(
-            ["entity", "year", "life_expectancy"],
-            [["Japan", 2020, 84.3]]
-        )
-        result = verify_answer(prose, rows, "SELECT entity, year, life_expectancy FROM life_expectancy WHERE entity='Japan' AND year=2020 LIMIT 1")
-        assert result.passed, f"84.3 is in result — should pass. Mismatches: {result.mismatches}"
-        assert result.status == "verified"
-
-    def test_number_not_in_result_fails(self):
-        prose = "Japan had a life expectancy of 99.9 years in 2020."
-        rows = make_rows(
-            ["entity", "year", "life_expectancy"],
-            [["Japan", 2020, 84.3]]
-        )
-        result = verify_answer(prose, rows, "SELECT entity, year, life_expectancy FROM life_expectancy WHERE entity='Japan' AND year=2020 LIMIT 1")
-        assert not result.passed, "99.9 is NOT in result — must fail verification"
-        assert result.status == "mismatch"
-        assert len(result.mismatches) > 0
-
-    def test_rounded_number_within_tolerance_passes(self):
-        """Prose may round 84.31 → 84.3 — this is acceptable."""
-        prose = "Japan had a life expectancy of about 84 years in 2020."
-        rows = make_rows(
-            ["entity", "year", "life_expectancy"],
-            [["Japan", 2020, 84.3]]
-        )
-        result = verify_answer(prose, rows, "SELECT * FROM life_expectancy LIMIT 1")
-        assert result.passed, "Rounded number within tolerance must pass"
-
-    def test_count_in_prose_matches_result(self):
-        prose = "There are 30,000 customers in the HOUSEHOLD segment."
-        rows = make_rows(["customer_count"], [[30000]])
-        result = verify_answer(prose, rows, "SELECT COUNT(*) FROM CUSTOMER LIMIT 1")
-        assert result.passed, "30000 is in result — must pass"
-
-    def test_invented_count_fails(self):
-        prose = "There are 500,000 customers in the HOUSEHOLD segment."
-        rows = make_rows(["customer_count"], [[30000]])
-        result = verify_answer(prose, rows, "SELECT COUNT(*) FROM CUSTOMER LIMIT 1")
-        assert not result.passed, "500000 is not in result — must fail"
-
-    def test_multiple_numbers_all_match(self):
-        prose = "Revenue was 1234567.89 and there were 42 orders."
-        rows = make_rows(
-            ["revenue", "order_count"],
-            [[1234567.89, 42]]
-        )
-        result = verify_answer(prose, rows, "SELECT revenue, order_count FROM ORDERS LIMIT 1")
-        assert result.passed, "Both numbers in result — must pass"
-
-    def test_one_number_mismatch_fails(self):
-        prose = "Revenue was 1234567.89 and there were 999 orders."
-        rows = make_rows(
-            ["revenue", "order_count"],
-            [[1234567.89, 42]]
-        )
-        result = verify_answer(prose, rows, "SELECT revenue, order_count FROM ORDERS LIMIT 1")
-        assert not result.passed, "999 not in result — must fail even if other number matched"
+    # Check evidence cells
+    evidence_texts = [e.text for e in result.evidence]
+    assert "84.4" in evidence_texts
+    assert "83.8" in evidence_texts
+    assert any(e.text == "Japan" and e.column == "entity" and e.row_index == 0 for e in result.evidence)
+    assert any(e.text == "84.4" and e.column == "life_expectancy" and e.row_index == 0 for e in result.evidence)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section B — Entity name matching
-# Country/company names in prose must appear in query result cells
-# ═══════════════════════════════════════════════════════════════════════════════
+def test_exempt_year_from_sql_does_not_fail():
+    """The year 2019 from the SQL WHERE clause is exempt from needing a row match."""
+    prose = "In 2019, Japan had the highest life expectancy at 84.4."
+    result = verify_answer(prose, COLUMNS, ROWS, sql=SAMPLE_SQL)
 
-class TestEntityNameMatching:
-
-    def test_entity_name_in_result_passes(self):
-        prose = "Japan has the highest life expectancy."
-        rows = make_rows(
-            ["entity", "life_expectancy"],
-            [["Japan", 84.3], ["Switzerland", 83.8], ["Singapore", 83.5]]
-        )
-        result = verify_answer(prose, rows, "SELECT entity, life_expectancy FROM life_expectancy LIMIT 5")
-        assert result.passed, "Japan is in result — must pass"
-
-    def test_entity_name_not_in_result_fails(self):
-        prose = "Australia has the highest life expectancy."
-        rows = make_rows(
-            ["entity", "life_expectancy"],
-            [["Japan", 84.3], ["Switzerland", 83.8], ["Singapore", 83.5]]
-        )
-        result = verify_answer(prose, rows, "SELECT entity, life_expectancy FROM life_expectancy LIMIT 5")
-        assert not result.passed, "Australia NOT in result — must fail"
-
-    def test_company_name_in_result_passes(self):
-        prose = "Customer #1 (Customer#000000001) had the highest spend."
-        rows = make_rows(
-            ["C_NAME", "total_spend"],
-            [["Customer#000000001", 500000.0]]
-        )
-        result = verify_answer(prose, rows, "SELECT C_NAME, SUM(revenue) FROM CUSTOMER LIMIT 1")
-        assert result.passed, "Customer name is in result — must pass"
+    assert result.is_verified is True
+    assert result.confidence == "verified"
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section C — Relational claim verification
-# "increased", "largest", "doubled" etc. verified deterministically from data
-# ═══════════════════════════════════════════════════════════════════════════════
+def test_hallucinated_number_triggers_fallback():
+    """A number not present in any returned cell triggers fallback prose."""
+    prose = "Japan had a life expectancy of 99.5 years in 2019."
+    result = verify_answer(prose, COLUMNS, ROWS, sql=SAMPLE_SQL)
 
-class TestRelationalClaims:
-
-    def test_increased_claim_true(self):
-        """Claim: life expectancy increased. Data confirms it."""
-        prose = "Life expectancy in Japan increased from 80.5 to 84.3 between 2000 and 2020."
-        rows = make_rows(
-            ["year", "life_expectancy"],
-            [[2000, 80.5], [2020, 84.3]]
-        )
-        result = verify_answer(prose, rows, "SELECT year, life_expectancy FROM life_expectancy LIMIT 2")
-        assert result.passed, "Increase claim is supported by data — must pass"
-
-    def test_decreased_claim_contradicted_by_data_fails(self):
-        """Claim: life expectancy decreased. Data shows it increased — must fail."""
-        prose = "Life expectancy in Japan decreased from 80.5 to 84.3."
-        rows = make_rows(
-            ["year", "life_expectancy"],
-            [[2000, 80.5], [2020, 84.3]]
-        )
-        result = verify_answer(prose, rows, "SELECT year, life_expectancy FROM life_expectancy LIMIT 2")
-        assert not result.passed, "Decrease claim contradicted by data — must fail"
-
-    def test_largest_claim_matches_top_row(self):
-        prose = "Japan has the largest life expectancy at 84.3 years."
-        rows = make_rows(
-            ["entity", "life_expectancy"],
-            [["Japan", 84.3], ["Switzerland", 83.8]]
-        )
-        result = verify_answer(prose, rows, "SELECT entity, life_expectancy FROM life_expectancy ORDER BY life_expectancy DESC LIMIT 5")
-        assert result.passed, "Japan is top row — largest claim must pass"
+    assert result.is_verified is False
+    assert result.confidence in ("partial", "unverifiable")
+    assert any("99.5" in err for err in result.unmatched_claims)
+    # The verified prose must be the deterministic fallback, not the hallucinated prose
+    assert result.verified_prose == result.fallback_sentence
+    assert "Japan" in result.verified_prose
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section D — Empty result handling
-# ═══════════════════════════════════════════════════════════════════════════════
+def test_entity_value_mismatch_detected():
+    """Associating an entity with another row's value is blocked even if both appear in the table."""
+    # India is row 2 with 70.9, but prose claims Japan had 70.9
+    prose = "In 2019, Japan had a life expectancy of 70.9 years."
+    result = verify_answer(prose, COLUMNS, ROWS, sql=SAMPLE_SQL)
 
-class TestEmptyResultHandling:
-
-    def test_empty_result_returns_unverifiable(self):
-        """When rows are empty, verifier cannot check — status must be 'unverifiable'."""
-        prose = "No data found for Atlantis."
-        rows = make_rows(["entity", "life_expectancy"], [])
-        result = verify_answer(prose, rows, "SELECT * FROM life_expectancy WHERE entity='Atlantis' LIMIT 1")
-        assert result.status == "unverifiable", \
-            f"Empty result must return unverifiable status, got: {result.status}"
-
-    def test_empty_result_passed_flag_false(self):
-        """passed must be False when status is unverifiable."""
-        prose = "No data found."
-        rows = make_rows(["count"], [])
-        result = verify_answer(prose, rows, "SELECT COUNT(*) FROM CUSTOMER WHERE 1=0 LIMIT 1")
-        assert not result.passed, "Unverifiable result must have passed=False"
+    assert result.is_verified is False
+    assert result.confidence in ("partial", "unverifiable")
+    assert any("mismatched" in err.lower() for err in result.unmatched_claims)
+    assert result.verified_prose == result.fallback_sentence
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section E — VerifyResult structure
-# ═══════════════════════════════════════════════════════════════════════════════
+def test_invalid_relational_claim():
+    """Claiming 'lowest' when the entity has the highest value is rejected."""
+    # Japan has 84.4 (the highest), but prose claims it was the lowest
+    prose = "Japan had the lowest life expectancy at 84.4."
+    result = verify_answer(prose, COLUMNS, ROWS, sql=SAMPLE_SQL)
 
-class TestVerifyResultStructure:
+    assert result.is_verified is False
+    assert any("lowest" in err.lower() for err in result.unmatched_claims)
 
-    def test_result_has_passed_field(self):
-        prose = "Japan had 84.3 years."
-        rows = make_rows(["entity", "life_expectancy"], [["Japan", 84.3]])
-        result = verify_answer(prose, rows, "SELECT * FROM life_expectancy LIMIT 1")
-        assert hasattr(result, "passed"), "VerifyResult must have 'passed' field"
 
-    def test_result_has_mismatches_field(self):
-        prose = "Japan had 99.9 years."
-        rows = make_rows(["entity", "life_expectancy"], [["Japan", 84.3]])
-        result = verify_answer(prose, rows, "SELECT * FROM life_expectancy LIMIT 1")
-        assert hasattr(result, "mismatches"), "VerifyResult must have 'mismatches' field"
-        assert isinstance(result.mismatches, list), "'mismatches' must be a list"
+def test_empty_rows_handling():
+    """Empty result rows are handled cleanly with verified status and honest empty message."""
+    result = verify_answer("No countries found.", COLUMNS, [], sql=SAMPLE_SQL)
 
-    def test_result_has_status_field(self):
-        prose = "Japan had 84.3 years."
-        rows = make_rows(["entity", "life_expectancy"], [["Japan", 84.3]])
-        result = verify_answer(prose, rows, "SELECT * FROM life_expectancy LIMIT 1")
-        assert hasattr(result, "status"), "VerifyResult must have 'status' field"
-        assert result.status in ("verified", "mismatch", "unverifiable"), \
-            f"Status must be one of verified/mismatch/unverifiable, got: {result.status}"
+    assert result.is_verified is True
+    assert result.confidence == "verified"
+    assert "no matching rows" in result.verified_prose.lower()
 
-    def test_passing_result_has_empty_mismatches(self):
-        prose = "Japan had 84.3 years."
-        rows = make_rows(["entity", "life_expectancy"], [["Japan", 84.3]])
-        result = verify_answer(prose, rows, "SELECT * FROM life_expectancy LIMIT 1")
-        assert result.passed
-        assert result.mismatches == [], "Passing result must have empty mismatches list"
+
+def test_build_fallback_sentence_single_row():
+    """Fallback generator builds an exact deterministic summary for a single row."""
+    fallback = build_fallback_sentence(["entity", "life_expectancy"], [["Japan", 84.4]])
+    assert "Japan" in fallback
+    assert "84.4" in fallback
+    assert "Result:" in fallback

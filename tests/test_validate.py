@@ -1,195 +1,448 @@
 """
-tests/test_validate.py
+Unit tests for src/validate.py — SQL guardrails (Section 12).
 
-Pytest tests for sqlglot-based SQL validation layer.
-Tests the SQL parsing, LIMIT enforcement, and structural checks from handbook.
+Covers every guardrail case from the handbook:
+  - Blocking DDL/DML: INSERT, UPDATE, DELETE, DROP, ALTER, MERGE, COPY,
+    CALL, GRANT, TRUNCATE, CREATE.
+  - Multi-statement injection (semicolon-separated).
+  - Unlisted tables (table allowlist enforcement).
+  - LIMIT enforcement (missing, within cap, over cap).
+  - Valid SELECT queries (simple, CTE, UNION, subquery, aliases).
+  - Prompt-injection-style SQL (comments hiding statements).
 
-Interface contract (Person A implements this):
-    from src.validate import validate_sql, enforce_limit, is_single_statement
-    validate_sql(sql, allowed_tables) -> (bool, str)
-    enforce_limit(sql, max_limit) -> str       # adds/clamps LIMIT clause
-    is_single_statement(sql) -> bool
-
-Run:
-    pytest tests/test_validate.py -v
+No hardcoded schema — allowed_tables are passed dynamically.
 """
+
+from __future__ import annotations
 
 import pytest
 
-try:
-    import sqlglot
-    SQLGLOT_AVAILABLE = True
-except ImportError:
-    SQLGLOT_AVAILABLE = False
+from src.validate import SQLValidationError, validate_sql
 
-try:
-    from src.validate import validate_sql, enforce_limit, is_single_statement
-    VALIDATE_AVAILABLE = True
-except ImportError:
-    VALIDATE_AVAILABLE = False
+# ── Shared fixtures ─────────────────────────────────────────────────────────
 
-pytestmark = pytest.mark.skipif(
-    not VALIDATE_AVAILABLE,
-    reason="src.validate not yet implemented — tests run when Person A ships it",
-)
-
-ALLOWED = ["CUSTOMER", "ORDERS", "LINEITEM", "NATION", "REGION", "SUPPLIER", "PART", "PARTSUPP"]
+ALLOWED_TABLES = ["life_expectancy", "gdp", "population", "co2_emissions"]
+"""Tables that would be loaded from the dataset YAML in production."""
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section A — LIMIT enforcement
-# ═══════════════════════════════════════════════════════════════════════════════
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+def assert_valid(sql: str, tables: list | None = None, max_limit: int = 200) -> str:
+    """Assert the SQL passes validation and return the sanitized SQL."""
+    is_valid, error, sanitized = validate_sql(
+        sql, ALLOWED_TABLES if tables is None else tables, max_limit
+    )
+    assert is_valid, f"Expected valid SQL but got error: {error}"
+    assert error is None
+    assert sanitized is not None
+    return sanitized
+
+
+def assert_invalid(sql: str, tables: list | None = None, max_limit: int = 200, *, fragment: str = "") -> str:
+    """Assert the SQL fails validation and return the error message.
+
+    Args:
+        fragment: If given, assert this substring appears in the error.
+    """
+    is_valid, error, sanitized = validate_sql(
+        sql, ALLOWED_TABLES if tables is None else tables, max_limit
+    )
+    assert not is_valid, f"Expected invalid SQL but it passed: {sanitized}"
+    assert error is not None
+    assert sanitized is None
+    if fragment:
+        assert fragment.lower() in error.lower(), (
+            f"Expected '{fragment}' in error message, got: {error}"
+        )
+    return error
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 1. DDL/DML Blocking (Section 12: "refused/rejected")
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestBlockDDLDML:
+    """The validator must reject any non-SELECT statement."""
+
+    def test_insert(self):
+        assert_invalid(
+            "INSERT INTO life_expectancy (entity) VALUES ('X')",
+            fragment="forbidden",
+        )
+
+    def test_update(self):
+        assert_invalid(
+            "UPDATE life_expectancy SET life_expectancy = 99 WHERE entity = 'X'",
+            fragment="forbidden",
+        )
+
+    def test_delete(self):
+        assert_invalid(
+            "DELETE FROM life_expectancy WHERE year = 2019",
+            fragment="forbidden",
+        )
+
+    def test_drop_table(self):
+        assert_invalid("DROP TABLE life_expectancy", fragment="forbidden")
+
+    def test_drop_database(self):
+        assert_invalid("DROP DATABASE datamind", fragment="forbidden")
+
+    def test_alter_table(self):
+        assert_invalid(
+            "ALTER TABLE life_expectancy ADD COLUMN x INT",
+            fragment="forbidden",
+        )
+
+    def test_merge(self):
+        assert_invalid(
+            "MERGE INTO life_expectancy USING gdp ON life_expectancy.entity = gdp.entity "
+            "WHEN MATCHED THEN UPDATE SET life_expectancy.life_expectancy = 0",
+            fragment="forbidden",
+        )
+
+    def test_create_table(self):
+        assert_invalid(
+            "CREATE TABLE evil (id INT)",
+            fragment="forbidden",
+        )
+
+    def test_truncate(self):
+        assert_invalid("TRUNCATE TABLE life_expectancy", fragment="forbidden")
+
+    def test_copy_into(self):
+        assert_invalid(
+            "COPY INTO life_expectancy FROM @my_stage",
+            fragment="forbidden",
+        )
+
+    def test_call_procedure(self):
+        assert_invalid("CALL my_procedure()", fragment="forbidden")
+
+    def test_grant(self):
+        assert_invalid(
+            "GRANT SELECT ON life_expectancy TO ROLE public",
+            fragment="forbidden",
+        )
+
+    def test_create_or_replace(self):
+        assert_invalid(
+            "CREATE OR REPLACE TABLE life_expectancy (id INT)",
+            fragment="forbidden",
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 2. Multi-Statement Injection (Section 12)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestMultiStatementInjection:
+    """Reject semicolon-separated multi-statements."""
+
+    def test_select_then_drop(self):
+        assert_invalid(
+            "SELECT * FROM life_expectancy; DROP TABLE life_expectancy",
+            fragment="single",
+        )
+
+    def test_select_then_delete(self):
+        assert_invalid(
+            "SELECT 1; DELETE FROM life_expectancy",
+            fragment="single",
+        )
+
+    def test_select_then_select(self):
+        """Even two SELECTs are rejected — only one statement allowed."""
+        assert_invalid(
+            "SELECT 1; SELECT 2",
+            fragment="single",
+        )
+
+    def test_trailing_semicolon_single_statement(self):
+        """A single SELECT with a trailing semicolon should be accepted."""
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy LIMIT 10;"
+        )
+        assert sanitized  # non-empty
+
+    def test_comment_hiding_second_statement(self):
+        """Comments that attempt to hide a second statement.
+
+        Section 12: 'comments hiding a second statement' must be rejected.
+        """
+        # If sqlglot parses the DROP out of the comment, it may pass or
+        # fail depending on dialect handling.  The important thing is that
+        # actual multi-statements with comments are blocked.
+        sql = "SELECT 1 FROM life_expectancy; /* harmless */ DROP TABLE life_expectancy"
+        assert_invalid(sql)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 3. Table Allowlist (Section 12)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestTableAllowlist:
+    """Every referenced base table must be in the allowed list."""
+
+    def test_unknown_table(self):
+        assert_invalid(
+            "SELECT * FROM secret_data LIMIT 10",
+            fragment="allowlist",
+        )
+
+    def test_information_schema(self):
+        assert_invalid(
+            "SELECT * FROM information_schema.tables LIMIT 10",
+            fragment="allowlist",
+        )
+
+    def test_mixed_known_unknown(self):
+        """Query joins an allowed table with an unlisted one."""
+        assert_invalid(
+            "SELECT a.entity FROM life_expectancy a "
+            "JOIN evil_table b ON a.entity = b.entity LIMIT 10",
+            fragment="allowlist",
+        )
+
+    def test_case_insensitive_match(self):
+        """Table names should match case-insensitively."""
+        sanitized = assert_valid(
+            "SELECT entity FROM LIFE_EXPECTANCY LIMIT 10"
+        )
+        assert sanitized
+
+    def test_all_tables_allowed(self):
+        sanitized = assert_valid(
+            "SELECT a.entity, b.entity "
+            "FROM life_expectancy a JOIN gdp b ON a.entity = b.entity LIMIT 10"
+        )
+        assert sanitized
+
+    def test_system_catalog_blocked(self):
+        """System views like pg_catalog are not in the allowlist."""
+        assert_invalid(
+            "SELECT * FROM pg_catalog LIMIT 10",
+            fragment="allowlist",
+        )
+
+    def test_snowflake_sample_data_tables(self):
+        """Tables from SNOWFLAKE_SAMPLE_DATA are not in OWID allowlist."""
+        assert_invalid(
+            "SELECT * FROM customer LIMIT 10",
+            fragment="allowlist",
+        )
+
+    def test_empty_allowlist(self):
+        """An empty allowlist should reject any table reference."""
+        assert_invalid(
+            "SELECT * FROM life_expectancy LIMIT 10",
+            tables=[],
+            fragment="allowlist",
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4. LIMIT Enforcement (Section 12: "Row cap hit")
+# ═══════════════════════════════════════════════════════════════════════════
 
 class TestLimitEnforcement:
-    """enforce_limit() must add a LIMIT when missing, and clamp when too high."""
+    """Enforce the LIMIT cap from config (default 200)."""
 
-    def test_no_limit_gets_added(self):
-        sql = "SELECT * FROM CUSTOMER"
-        result = enforce_limit(sql, max_limit=200)
-        parsed = result.upper()
-        assert "LIMIT" in parsed, "LIMIT must be added when missing"
+    def test_no_limit_injected(self):
+        """A query without LIMIT gets one injected."""
+        sanitized = assert_valid("SELECT entity FROM life_expectancy")
+        assert "LIMIT" in sanitized.upper()
+        # Default max_limit is 200
+        assert "200" in sanitized
 
-    def test_limit_above_max_gets_clamped(self):
-        sql = "SELECT * FROM CUSTOMER LIMIT 10000"
-        result = enforce_limit(sql, max_limit=200)
-        # Parse the result and confirm LIMIT <= 200
-        import re
-        match = re.search(r"LIMIT\s+(\d+)", result, re.IGNORECASE)
-        assert match, "LIMIT clause must be present after enforcement"
-        assert int(match.group(1)) <= 200, "LIMIT must be clamped to max_limit=200"
-
-    def test_limit_below_max_unchanged(self):
-        sql = "SELECT * FROM CUSTOMER LIMIT 5"
-        result = enforce_limit(sql, max_limit=200)
-        import re
-        match = re.search(r"LIMIT\s+(\d+)", result, re.IGNORECASE)
-        assert match and int(match.group(1)) == 5, "LIMIT 5 must not be changed"
-
-    def test_limit_exactly_max_unchanged(self):
-        sql = "SELECT * FROM ORDERS LIMIT 200"
-        result = enforce_limit(sql, max_limit=200)
-        import re
-        match = re.search(r"LIMIT\s+(\d+)", result, re.IGNORECASE)
-        assert match and int(match.group(1)) == 200, "LIMIT exactly at max must be unchanged"
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section B — Single statement detection
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class TestSingleStatement:
-    """is_single_statement() must return True only for single SQL statements."""
-
-    def test_single_select_is_true(self):
-        assert is_single_statement("SELECT * FROM ORDERS LIMIT 10") is True
-
-    def test_two_selects_is_false(self):
-        assert is_single_statement("SELECT 1; SELECT 2") is False
-
-    def test_select_then_drop_is_false(self):
-        assert is_single_statement("SELECT * FROM ORDERS; DROP TABLE ORDERS") is False
-
-    def test_empty_string_is_false(self):
-        assert is_single_statement("") is False
-
-    def test_cte_single_is_true(self):
-        sql = (
-            "WITH cte AS (SELECT O_CUSTKEY FROM ORDERS LIMIT 100) "
-            "SELECT * FROM CUSTOMER JOIN cte ON CUSTOMER.C_CUSTKEY = cte.O_CUSTKEY LIMIT 10"
+    def test_limit_within_cap(self):
+        """A LIMIT smaller than the cap is kept as-is."""
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy LIMIT 50"
         )
-        assert is_single_statement(sql) is True
+        assert "50" in sanitized
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section C — sqlglot parsing integrity
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class TestSqlglotParsing:
-    """Confirm that sqlglot is the validation engine (not regex)."""
-
-    @pytest.mark.skipif(not SQLGLOT_AVAILABLE, reason="sqlglot not installed")
-    def test_sqlglot_can_parse_valid_sql(self):
-        import sqlglot
-        result = sqlglot.parse("SELECT * FROM CUSTOMER LIMIT 10")
-        assert result and len(result) == 1
-
-    @pytest.mark.skipif(not SQLGLOT_AVAILABLE, reason="sqlglot not installed")
-    def test_sqlglot_detects_drop(self):
-        import sqlglot
-        result = sqlglot.parse("DROP TABLE CUSTOMER")
-        assert result
-        stmt_type = type(result[0]).__name__
-        assert stmt_type == "Drop", f"Expected Drop, got {stmt_type}"
-
-    @pytest.mark.skipif(not SQLGLOT_AVAILABLE, reason="sqlglot not installed")
-    def test_sqlglot_detects_insert(self):
-        import sqlglot
-        result = sqlglot.parse("INSERT INTO CUSTOMER VALUES (1, 'x')")
-        assert result
-        stmt_type = type(result[0]).__name__
-        assert stmt_type == "Insert", f"Expected Insert, got {stmt_type}"
-
-    @pytest.mark.skipif(not SQLGLOT_AVAILABLE, reason="sqlglot not installed")
-    def test_sqlglot_parses_cte(self):
-        import sqlglot
-        sql = (
-            "WITH top AS (SELECT O_CUSTKEY FROM ORDERS LIMIT 10) "
-            "SELECT * FROM CUSTOMER c JOIN top t ON c.C_CUSTKEY = t.O_CUSTKEY LIMIT 10"
+    def test_limit_at_cap(self):
+        """A LIMIT exactly at the cap is kept."""
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy LIMIT 200"
         )
-        result = sqlglot.parse(sql)
-        assert result and len(result) == 1
+        assert "200" in sanitized
 
-    @pytest.mark.skipif(not SQLGLOT_AVAILABLE, reason="sqlglot not installed")
-    def test_sqlglot_extracts_table_names(self):
-        """Confirm sqlglot can extract table names — required for allowlist checking."""
-        import sqlglot
-        sql = "SELECT c.C_NAME, o.O_TOTALPRICE FROM CUSTOMER c JOIN ORDERS o ON c.C_CUSTKEY = o.O_CUSTKEY LIMIT 10"
-        tables = {
-            t.name.upper()
-            for tree in sqlglot.parse(sql)
-            for t in tree.find_all(sqlglot.exp.Table)
-        }
-        assert "CUSTOMER" in tables
-        assert "ORDERS" in tables
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Section D — Full validate_sql integration
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class TestValidateSqlIntegration:
-    """End-to-end validate_sql() tests — combines all checks."""
-
-    def test_valid_simple_select(self):
-        is_valid, error = validate_sql("SELECT * FROM CUSTOMER LIMIT 10", ALLOWED)
-        assert is_valid
-        assert error == ""
-
-    def test_valid_join(self):
-        sql = (
-            "SELECT c.C_NAME, SUM(l.L_EXTENDEDPRICE) AS revenue "
-            "FROM CUSTOMER c "
-            "JOIN ORDERS o ON c.C_CUSTKEY = o.O_CUSTKEY "
-            "JOIN LINEITEM l ON o.O_ORDERKEY = l.L_ORDERKEY "
-            "GROUP BY c.C_NAME ORDER BY revenue DESC LIMIT 10"
+    def test_limit_over_cap_clamped(self):
+        """A LIMIT exceeding the cap must be clamped."""
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy LIMIT 5000"
         )
-        is_valid, error = validate_sql(sql, ALLOWED)
-        assert is_valid, f"Valid 3-table join must pass. Error: {error}"
+        assert "5000" not in sanitized
+        assert "200" in sanitized
 
-    def test_returns_false_for_drop(self):
-        is_valid, error = validate_sql("DROP TABLE CUSTOMER", ALLOWED)
-        assert not is_valid
-        assert len(error) > 0
+    def test_custom_max_limit(self):
+        """The max_limit parameter is respected."""
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy LIMIT 150",
+            max_limit=100,
+        )
+        assert "150" not in sanitized
+        assert "100" in sanitized
 
-    def test_returns_false_for_unlisted_table(self):
-        is_valid, error = validate_sql("SELECT * FROM secret_table LIMIT 10", ALLOWED)
-        assert not is_valid
-        assert len(error) > 0
+    def test_limit_injection_with_max_50(self):
+        """Injected limit uses the provided cap value."""
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy",
+            max_limit=50,
+        )
+        assert "50" in sanitized
 
-    def test_error_message_is_informative(self):
-        """Error messages must say WHY — not just 'invalid'."""
-        is_valid, error = validate_sql("DROP TABLE ORDERS", ALLOWED)
-        assert not is_valid
-        # Error should mention something meaningful
-        assert any(keyword in error.lower() for keyword in ["drop", "not allowed", "blocked", "select only", "statement"]), \
-            f"Error message must be informative, got: '{error}'"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 5. Valid SELECT Queries
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestValidSelects:
+    """Ensure legitimate queries pass validation."""
+
+    def test_simple_select(self):
+        sanitized = assert_valid(
+            "SELECT entity, life_expectancy FROM life_expectancy WHERE year = 2019 LIMIT 5"
+        )
+        assert "SELECT" in sanitized.upper()
+
+    def test_select_with_where_and_order(self):
+        sanitized = assert_valid(
+            "SELECT entity, life_expectancy FROM life_expectancy "
+            "WHERE year = 2019 AND entity != 'World' "
+            "ORDER BY life_expectancy DESC LIMIT 10"
+        )
+        assert sanitized
+
+    def test_select_with_aggregation(self):
+        sanitized = assert_valid(
+            "SELECT entity, AVG(life_expectancy) AS avg_le "
+            "FROM life_expectancy GROUP BY entity LIMIT 10"
+        )
+        assert sanitized
+
+    def test_select_with_join(self):
+        sanitized = assert_valid(
+            "SELECT le.entity, le.life_expectancy, g.entity "
+            "FROM life_expectancy le "
+            "JOIN gdp g ON le.entity = g.entity AND le.year = g.year "
+            "LIMIT 10",
+            tables=["life_expectancy", "gdp"],
+        )
+        assert sanitized
+
+    def test_select_with_cte(self):
+        """CTEs (WITH ... AS) must be accepted as valid SELECT queries."""
+        sanitized = assert_valid(
+            "WITH top_countries AS ("
+            "  SELECT entity, life_expectancy "
+            "  FROM life_expectancy "
+            "  WHERE year = 2019 "
+            "  ORDER BY life_expectancy DESC "
+            "  LIMIT 5"
+            ") "
+            "SELECT * FROM top_countries LIMIT 5"
+        )
+        assert sanitized
+
+    def test_union(self):
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy WHERE year = 2019 LIMIT 5 "
+            "UNION ALL "
+            "SELECT entity FROM life_expectancy WHERE year = 2020 LIMIT 5"
+        )
+        assert sanitized
+
+    def test_subquery_in_where(self):
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy "
+            "WHERE life_expectancy > (SELECT AVG(life_expectancy) FROM life_expectancy) "
+            "LIMIT 10"
+        )
+        assert sanitized
+
+    def test_select_star(self):
+        sanitized = assert_valid("SELECT * FROM life_expectancy LIMIT 10")
+        assert sanitized
+
+    def test_window_function(self):
+        sanitized = assert_valid(
+            "SELECT entity, year, life_expectancy, "
+            "  RANK() OVER (PARTITION BY year ORDER BY life_expectancy DESC) AS rnk "
+            "FROM life_expectancy LIMIT 20"
+        )
+        assert sanitized
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 6. Edge Cases and Prompt Injection (Section 12)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestEdgeCases:
+    """Edge cases from Section 12: prompt injection, empty input, etc."""
+
+    def test_empty_string(self):
+        assert_invalid("", fragment="empty")
+
+    def test_whitespace_only(self):
+        assert_invalid("   ", fragment="empty")
+
+    def test_prompt_injection_drop(self):
+        """Section 12: 'Prompt injection in a question' — validator blocks."""
+        # If Gemma were to produce this SQL from a prompt injection,
+        # the validator must still block it.
+        assert_invalid(
+            "DROP TABLE life_expectancy",
+            fragment="forbidden",
+        )
+
+    def test_select_into_blocked(self):
+        """SELECT ... INTO is a mutation in some dialects."""
+        # sqlglot may or may not parse this as a command.  If it does pass
+        # parsing, the INTO table won't be in the allowlist.
+        is_valid, error, _ = validate_sql(
+            "SELECT entity INTO new_table FROM life_expectancy",
+            ALLOWED_TABLES,
+        )
+        # Must fail — either as forbidden or table not in allowlist.
+        # (Both are valid rejection reasons.)
+        # Actually this might parse as a valid SELECT with an INTO clause,
+        # but 'new_table' won't be in the allowlist.
+        if is_valid:
+            pytest.fail(f"SELECT INTO should be blocked but was accepted")
+
+    def test_only_semicolons(self):
+        """Just semicolons should be treated as empty."""
+        assert_invalid(";;;", fragment="empty")
+
+    def test_sql_with_line_comments(self):
+        """Single-line comments should not break validation."""
+        sanitized = assert_valid(
+            "-- get top countries\n"
+            "SELECT entity FROM life_expectancy LIMIT 5"
+        )
+        assert sanitized
+
+    def test_sql_with_block_comments(self):
+        """Block comments should not break validation."""
+        sanitized = assert_valid(
+            "/* top countries */ SELECT entity FROM life_expectancy LIMIT 5"
+        )
+        assert sanitized
+
+    def test_return_tuple_shape(self):
+        """validate_sql always returns a 3-tuple."""
+        result = validate_sql("SELECT 1 FROM life_expectancy", ALLOWED_TABLES)
+        assert isinstance(result, tuple)
+        assert len(result) == 3
+
+    def test_sanitized_sql_is_snowflake_dialect(self):
+        """The sanitized SQL should be generated for Snowflake dialect."""
+        sanitized = assert_valid(
+            "SELECT entity FROM life_expectancy LIMIT 5"
+        )
+        # sqlglot Snowflake output is capitalized/normalized.
+        assert isinstance(sanitized, str)
+        assert len(sanitized) > 0

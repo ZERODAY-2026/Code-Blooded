@@ -1,232 +1,189 @@
 """
-src/validate.py
+SQL validation and sanitization using sqlglot (Snowflake dialect).
 
-SQL Safety and Guardrail Engine powered by sqlglot.
-Performs AST-level validation (no regex shortcuts), statement isolation,
-table allowlist enforcement, and deterministic LIMIT clamping.
+Enforces all guardrails defined in the handbook (Section 6, 10, 12) and
+the sql-safety skill:
+  1. Single statement only (no multi-statement injection).
+  2. SELECT-only — blocks DDL/DML/admin operations.
+  3. Table allowlist — every referenced table must be in the allowed set.
+  4. LIMIT enforcement — injects or clamps to max_limit.
 
-Handbook Section 12 Specification:
-- SELECT-only enforcement
-- Single-statement constraint
-- Strict table allowlist (subqueries & CTEs included)
-- Automatic LIMIT injection / clamping
+All schema information is loaded dynamically from dataset YAML files;
+no table or column names are hardcoded here.
 """
 
-import re
-import os
-import glob
-from typing import Tuple, List, Set, Optional, Dict
-import yaml
+from __future__ import annotations
+
+from typing import List, Optional, Set, Tuple
+
 import sqlglot
 from sqlglot import exp
 
-_SCHEMA_REGISTRY_CACHE: Optional[Dict[str, Dict[str, str]]] = None
-
-
-def _load_schema_registry() -> Dict[str, Dict[str, str]]:
-    """
-    Dynamically loads table -> {schema, database} mappings from datasets/*.yaml.
-    Guarantees ZERO hardcoded database or schema names in Python code.
-    """
-    global _SCHEMA_REGISTRY_CACHE
-    if _SCHEMA_REGISTRY_CACHE is not None:
-        return _SCHEMA_REGISTRY_CACHE
-
-    registry: Dict[str, Dict[str, str]] = {}
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    candidates = [
-        os.path.join(base_dir, "datasets", "*.yaml"),
-        os.path.join("datasets", "*.yaml"),
-    ]
-
-    for pattern in candidates:
-        for filepath in glob.glob(pattern):
-            try:
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                    if isinstance(data, dict):
-                        schema = str(data.get("schema", "")).upper()
-                        database = str(data.get("database", "")).upper()
-                        tables = data.get("tables", {})
-                        if isinstance(tables, dict):
-                            for tbl in tables.keys():
-                                registry[str(tbl).upper()] = {
-                                    "schema": schema,
-                                    "database": database,
-                                }
-            except Exception:
-                continue
-
-    _SCHEMA_REGISTRY_CACHE = registry
-    return registry
-
-
-# Statements strictly forbidden from execution
-BLOCKED_EXPRESSION_TYPES = (
-    exp.Drop,
-    exp.Delete,
+# ── Forbidden AST expression types ──────────────────────────────────────────
+# Covers every mutation, DDL, DCL, and admin statement listed in the handbook
+# (Section 12) and AGENTS.md.  exp.Command catches CALL, COPY, GRANT,
+# TRUNCATE, and any other free-form Snowflake command.
+FORBIDDEN_EXPRESSIONS: Tuple[type, ...] = (
     exp.Insert,
     exp.Update,
+    exp.Delete,
+    exp.Drop,
     exp.Alter,
-    exp.Command,
-    exp.Create,
     exp.Merge,
-    exp.TruncateTable,
-    exp.Grant,
-    exp.Revoke,
+    exp.Create,
+    exp.Command,       # Covers CALL, SET, USE, and other free-form commands.
+    exp.TruncateTable, # TRUNCATE TABLE — parsed as its own type in sqlglot.
+    exp.Copy,          # COPY INTO — parsed as its own type in sqlglot.
+    exp.Grant,         # GRANT — parsed as its own type in sqlglot.
 )
 
 
-def is_single_statement(sql: str) -> bool:
-    """Returns True if the SQL string parses into exactly one statement."""
-    if not sql or not sql.strip():
-        return False
-    try:
-        parsed = sqlglot.parse(sql, read="snowflake")
-        return len(parsed) == 1
-    except Exception:
-        # Fallback to standard dialect
-        try:
-            parsed = sqlglot.parse(sql)
-            return len(parsed) == 1
-        except Exception:
-            return False
+class SQLValidationError(Exception):
+    """Raised when a SQL string fails any validation check."""
 
 
-def validate_sql(sql: str, allowed_tables: List[str]) -> Tuple[bool, str]:
-    """
-    Validates a SQL query using sqlglot AST parsing.
+def validate_sql(
+    sql: str,
+    allowed_tables: List[str],
+    max_limit: int = 200,
+) -> Tuple[bool, Optional[str], Optional[str]]:
+    """Validate and sanitize a SQL string against the project guardrails.
 
     Args:
-        sql: The SQL query string to inspect.
-        allowed_tables: List of permitted table names (case-insensitive).
+        sql: Raw SQL string (potentially from Gemma).
+        allowed_tables: List of table names permitted by the current dataset
+            YAML.  Compared case-insensitively.
+        max_limit: Maximum number of rows the query may return.  A missing
+            LIMIT clause is injected; an excessive one is clamped.
 
     Returns:
-        (True, "") if query is safe and compliant.
-        (False, error_message) if query violates any safety or allowlist rule.
+        A 3-tuple ``(is_valid, error_message, sanitized_sql)``.
+        On success ``is_valid`` is ``True``, ``error_message`` is ``None``,
+        and ``sanitized_sql`` contains the Snowflake-dialect SQL with a
+        guaranteed LIMIT.
+        On failure ``is_valid`` is ``False``, ``error_message`` describes the
+        problem, and ``sanitized_sql`` is ``None``.
     """
-    if not sql or not sql.strip():
-        return False, "Empty or whitespace-only SQL query."
-
-    # 1. Parse into AST
     try:
-        trees = sqlglot.parse(sql, read="snowflake")
-    except Exception as e:
-        try:
-            trees = sqlglot.parse(sql)
-        except Exception as e2:
-            return False, f"SQL syntax error: unable to parse query ({str(e2)})."
+        sanitized = _validate_and_sanitize(sql, allowed_tables, max_limit)
+        return (True, None, sanitized)
+    except SQLValidationError as exc:
+        return (False, str(exc), None)
 
-    if not trees:
-        return False, "No valid SQL statement found."
 
-    if len(trees) > 1:
-        return False, f"Multi-statement queries blocked: found {len(trees)} statements (semicolon-separated)."
+# ── Internal implementation ─────────────────────────────────────────────────
 
-    tree = trees[0]
+def _validate_and_sanitize(
+    sql: str,
+    allowed_tables: List[str],
+    max_limit: int,
+) -> str:
+    """Core validation logic.  Raises ``SQLValidationError`` on any failure."""
 
-    # 2. Blocked statement checks
-    if isinstance(tree, BLOCKED_EXPRESSION_TYPES):
-        stmt_name = type(tree).__name__.upper()
-        return False, f"Blocked statement type '{stmt_name}': Only read-only SELECT queries are permitted."
+    # ── 1. Parse using Snowflake dialect ────────────────────────────────────
+    try:
+        statements = sqlglot.parse(sql, read="snowflake")
+    except sqlglot.errors.ParseError as exc:
+        raise SQLValidationError(f"SQL parse error: {exc}") from exc
 
-    # Check for any nested DML/DDL inside the tree
-    for blocked_type in BLOCKED_EXPRESSION_TYPES:
-        if tree.find(blocked_type):
-            return False, f"Query contains prohibited '{blocked_type.__name__.upper()}' operation."
+    # Filter out None entries that sqlglot may return for empty/trailing
+    # semicolons on a single statement (e.g. "SELECT 1;").
+    statements = [s for s in statements if s is not None]
 
-    # Ensure root statement is a SELECT (or Union)
-    if not isinstance(tree, (exp.Select, exp.Union)):
-        return False, f"Non-SELECT statement type '{type(tree).__name__}' is not allowed."
+    if len(statements) == 0:
+        raise SQLValidationError("Empty SQL input.")
 
-    # 3. Allowlist validation
-    # Collect CTE names so CTE aliases in FROM clauses are not flagged as external tables
-    cte_names: Set[str] = set()
-    for cte in tree.find_all(exp.CTE):
-        if cte.alias:
-            cte_names.add(cte.alias.upper())
-        elif hasattr(cte, "this") and hasattr(cte.this, "alias"):
-            cte_names.add(cte.this.alias.upper())
+    if len(statements) > 1:
+        raise SQLValidationError(
+            "Only a single SQL statement is allowed. "
+            "Multiple statements (including semicolon-separated) are rejected."
+        )
 
-    allowed_set = {t.upper() for t in allowed_tables}
+    statement = statements[0]
 
-    # Inspect all Table references in query and subqueries
-    for table_exp in tree.find_all(exp.Table):
-        table_name = table_exp.name.upper() if table_exp.name else ""
-        if not table_name:
-            continue
+    # ── 2. Reject forbidden (non-SELECT) expression types ──────────────────
+    # Check the root node itself first.
+    if isinstance(statement, FORBIDDEN_EXPRESSIONS):
+        raise SQLValidationError(
+            f"Forbidden SQL operation: {type(statement).__name__}. "
+            "Only SELECT queries are allowed."
+        )
 
-        # If table reference is an alias of a defined CTE, it is safe
-        if table_name in cte_names:
-            continue
-
-        # Check base table name against allowlist
-        if table_name not in allowed_set:
-            return False, (
-                f"Table '{table_name}' is not in the allowlist for the active dataset. "
-                f"Permitted tables: {', '.join(sorted(allowed_set))}."
+    # Walk the entire AST to catch forbidden operations hidden inside CTEs,
+    # subqueries, or other nested constructs.
+    for node in statement.walk():
+        if isinstance(node, FORBIDDEN_EXPRESSIONS):
+            raise SQLValidationError(
+                f"Forbidden SQL operation detected in query: "
+                f"{type(node).__name__}. Only SELECT queries are allowed."
             )
 
-        # Validate schema and catalog qualification if present
-        schema_name = table_exp.db.upper() if table_exp.db else ""
-        catalog_name = table_exp.catalog.upper() if table_exp.catalog else ""
+    # The root must be a data-reading statement: SELECT, UNION, or a CTE
+    # (WITH) that ultimately resolves to a SELECT.
+    if not isinstance(statement, (exp.Select, exp.Union, exp.Subquery)):
+        # Also allow exp.Paren wrapping a select, or CTEs via exp.Select
+        # with a WITH clause — sqlglot represents CTEs as part of
+        # the Select node via the "with" arg, so a valid CTE query will
+        # already be an exp.Select.
+        raise SQLValidationError(
+            "Query must be a SELECT statement (including CTEs and UNIONs). "
+            f"Got: {type(statement).__name__}."
+        )
 
-        if schema_name:
-            registry = _load_schema_registry()
-            expected_meta = registry.get(table_name)
+    # ── 3. Table allowlist ──────────────────────────────────────────────────
+    allowed_lower: Set[str] = {t.lower() for t in allowed_tables}
 
-            if expected_meta:
-                expected_schema = expected_meta.get("schema", "")
-                expected_db = expected_meta.get("database", "")
-                if expected_schema and schema_name != expected_schema:
-                    return False, f"Table '{table_name}' in unauthorized schema '{schema_name}' is not permitted (expected '{expected_schema}')."
-                if catalog_name and expected_db and catalog_name != expected_db:
-                    return False, f"Table '{table_name}' in unauthorized database '{catalog_name}' is not permitted (expected '{expected_db}')."
-            else:
-                return False, f"Unauthorized schema qualification '{schema_name}' on table '{table_name}'."
+    # Collect CTE names so they are not treated as base tables.
+    cte_names: Set[str] = set()
+    for cte_node in statement.find_all(exp.CTE):
+        alias = cte_node.alias
+        if alias:
+            cte_names.add(alias.lower())
+
+    referenced_tables: Set[str] = set()
+    for table_node in statement.find_all(exp.Table):
+        table_name = table_node.name
+        if table_name and table_name.lower() not in cte_names:
+            referenced_tables.add(table_name.lower())
+
+    disallowed = referenced_tables - allowed_lower
+    if disallowed:
+        raise SQLValidationError(
+            f"Tables not in allowlist: {sorted(disallowed)}. "
+            f"Allowed tables: {sorted(allowed_tables)}."
+        )
+
+    # ── 4. Enforce LIMIT ───────────────────────────────────────────────────
+    # For UNIONs, sqlglot stores the top-level LIMIT on the Union node.
+    # For plain SELECTs, it's on the Select node.
+    _enforce_limit(statement, max_limit)
+
+    # ── Generate clean Snowflake SQL ────────────────────────────────────────
+    return statement.sql(dialect="snowflake")
 
 
-
-    return True, ""
-
-
-def enforce_limit(sql: str, max_limit: int = 200) -> str:
-    """
-    Enforces that a SELECT query has a LIMIT clause, and that it does not exceed max_limit.
-    Uses sqlglot AST manipulation with fallback regex.
-    """
-    if not sql or not sql.strip():
-        return sql
-
-    try:
-        parsed = sqlglot.parse_one(sql, read="snowflake")
-        if isinstance(parsed, exp.Select):
-            limit_exp = parsed.args.get("limit")
-            if limit_exp is None:
-                # Add LIMIT clause
-                parsed = parsed.limit(max_limit)
-                return parsed.sql(dialect="snowflake")
-            else:
-                # Check current limit value
-                try:
-                    current_limit = int(limit_exp.expression.name)
-                    if current_limit > max_limit:
-                        parsed = parsed.limit(max_limit)
-                        return parsed.sql(dialect="snowflake")
-                except Exception:
-                    pass
-                return parsed.sql(dialect="snowflake")
-    except Exception:
-        pass
-
-    # Safe regex fallback for string manipulation if AST roundtrip alters formatting
-    limit_match = re.search(r"\bLIMIT\s+(\d+)", sql, re.IGNORECASE)
-    if limit_match:
-        current_limit = int(limit_match.group(1))
-        if current_limit > max_limit:
-            return re.sub(r"\bLIMIT\s+\d+", f"LIMIT {max_limit}", sql, flags=re.IGNORECASE)
-        return sql
+def _enforce_limit(statement: exp.Expression, max_limit: int) -> None:
+    """Inject or clamp a LIMIT clause on *statement* in-place."""
+    limit_node = statement.args.get("limit")
+    if limit_node is None:
+        # No LIMIT present — inject one.
+        statement.set(
+            "limit",
+            exp.Limit(expression=exp.Literal.number(max_limit)),
+        )
     else:
-        # Strip trailing semicolon if present and append LIMIT
-        cleaned = sql.strip().rstrip(";")
-        return f"{cleaned} LIMIT {max_limit};"
+        # LIMIT present — clamp if it exceeds the cap.
+        try:
+            limit_expr = limit_node.expression
+            current_limit = int(limit_expr.this) if isinstance(limit_expr, exp.Literal) else int(str(limit_expr))
+            if current_limit > max_limit:
+                statement.set(
+                    "limit",
+                    exp.Limit(expression=exp.Literal.number(max_limit)),
+                )
+        except (ValueError, AttributeError, TypeError):
+            # Cannot determine the limit value — replace with the cap to be safe.
+            statement.set(
+                "limit",
+                exp.Limit(expression=exp.Literal.number(max_limit)),
+            )
