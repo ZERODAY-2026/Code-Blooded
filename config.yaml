@@ -1,6 +1,6 @@
 # config.yaml — Global application configuration (Section 9)
 provider: api            # api | ollama
-model: gemma-4-31b-it    # exact model ID available to your AI Studio key
+model: gemma-4-26b-a4b-it    # fast Gemma 4 MoE model available to your AI Studio key
 local_model: gemma-2-9b-it # exact name from `ollama list`, used when provider: ollama
 temperature:
   sql: 0.1

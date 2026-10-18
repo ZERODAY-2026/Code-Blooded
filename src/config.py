@@ -141,7 +141,7 @@ class LimitsConfig(BaseModel):
     max_retries: int = 2
     query_timeout_s: int = 30
     max_tokens_sql: int = 8192
-    max_tokens_prose: int = 512
+    max_tokens_prose: int = 4096
 
 
 class AppConfig(BaseModel):

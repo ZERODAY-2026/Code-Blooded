@@ -135,7 +135,20 @@ def get_default_pipeline(request: Request = None) -> DataMindPipeline:
         from src.verify import verify_answer
 
         def _pipeline_verify(prose: str, rows: RowSet, question: str = "", is_simulated: bool = False) -> VerifyResult:
-            return verify_answer(prose=prose, columns=rows.columns, rows=rows.data, is_simulated=is_simulated)
+            v_res = verify_answer(prose, rows.columns, rows.data)
+            ev_cells = [
+                EvidenceCell(text=str(item["text"]), row_index=int(item["row_index"]), column=str(item["column"]))
+                for item in getattr(v_res, "evidence", [])
+            ]
+            conf = "verified" if getattr(v_res, "confidence", "partial") == "verified" else "partial"
+            st = "answered" if getattr(v_res, "is_verified", True) else "unverifiable"
+            return VerifyResult(
+                verified_answer=getattr(v_res, "verified_prose", prose),
+                evidence=ev_cells,
+                confidence=conf,
+                unverifiable_claims=getattr(v_res, "unmatched_claims", []),
+                status=st,
+            )
 
         verifier = _pipeline_verify
         logger.info("Configured evidence verifier.")

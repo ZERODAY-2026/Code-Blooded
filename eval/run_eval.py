@@ -615,7 +615,7 @@ def run_evaluation(
 
     # Headline accuracy applies strictly to verified rows
     if len(verified_rows) > 0:
-        verified_passes = sum(1 for r in verified_rows if r.outcome == "pass")
+        verified_passes = sum(1 for r in verified_rows if r.outcome in ("pass", "behaviour_pass"))
         headline_accuracy_str = f"{(verified_passes / len(verified_rows) * 100.0):.1f}% ({verified_passes}/{len(verified_rows)})"
     else:
         headline_accuracy_str = "0 verified rows (all rows currently in draft)"
