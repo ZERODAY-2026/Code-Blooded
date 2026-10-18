@@ -4,21 +4,116 @@
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-800 antialiased min-h-screen selection:bg-sky-100 selection:text-sky-900;
+    @apply antialiased min-h-screen text-slate-800 selection:bg-sky-200 selection:text-sky-900;
+    background-color: #f1f5f9;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(224, 242, 254, 0.8) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(237, 233, 254, 0.7) 0px, transparent 50%),
+      radial-gradient(at 50% 100%, rgba(240, 249, 255, 0.9) 0px, transparent 60%);
+    background-attachment: fixed;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
-/* Custom scrollbars for data tables and code */
+/* ── Tactile "Soft Tech" Claymorphism Tokens ────────────────────────────── */
+@layer components {
+  /* Elevated 3D Clay Container Card */
+  .clay-card {
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    border-radius: 1.25rem;
+    box-shadow: 
+      0 16px 32px -6px rgba(15, 23, 42, 0.07),
+      0 4px 12px -2px rgba(15, 23, 42, 0.03),
+      inset 0 2px 3px rgba(255, 255, 255, 1),
+      inset 0 -2px 4px rgba(148, 163, 184, 0.12);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Tactile Clay Button (Primary) */
+  .clay-btn-primary {
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 
+      0 8px 16px -2px rgba(2, 132, 199, 0.35),
+      inset 0 2px 2px rgba(255, 255, 255, 0.45),
+      inset 0 -2px 3px rgba(3, 105, 161, 0.4);
+    border-radius: 0.75rem;
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .clay-btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 
+      0 10px 22px -2px rgba(2, 132, 199, 0.45),
+      inset 0 2px 2px rgba(255, 255, 255, 0.55),
+      inset 0 -2px 3px rgba(3, 105, 161, 0.4);
+  }
+  .clay-btn-primary:active:not(:disabled) {
+    transform: translateY(1px) scale(0.98);
+    box-shadow: 
+      0 2px 6px rgba(2, 132, 199, 0.3),
+      inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  }
+
+  /* Interactive Tactile Pill Chip */
+  .clay-pill {
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(226, 232, 240, 0.9);
+    border-radius: 9999px;
+    box-shadow: 
+      0 3px 8px rgba(15, 23, 42, 0.04),
+      inset 0 1.5px 2px rgba(255, 255, 255, 1),
+      inset 0 -1px 2px rgba(148, 163, 184, 0.15);
+    transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .clay-pill:hover:not(:disabled) {
+    transform: translateY(-1px);
+    background: #ffffff;
+    border-color: #7dd3fc;
+    color: #0369a1;
+    box-shadow: 
+      0 6px 14px rgba(15, 23, 42, 0.08),
+      inset 0 1.5px 2px rgba(255, 255, 255, 1);
+  }
+  .clay-pill:active:not(:disabled) {
+    transform: translateY(0.5px) scale(0.98);
+  }
+
+  /* Recessed Clay Input */
+  .clay-input {
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(203, 213, 225, 0.85);
+    border-radius: 1rem;
+    box-shadow: 
+      inset 0 2px 4px rgba(15, 23, 42, 0.04),
+      inset 0 1px 2px rgba(15, 23, 42, 0.03),
+      0 1px 2px rgba(255, 255, 255, 0.9);
+  }
+
+  /* Interactive Tab Pill */
+  .clay-tab-active {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 
+      0 4px 12px rgba(15, 23, 42, 0.06),
+      inset 0 1.5px 2px rgba(255, 255, 255, 1),
+      inset 0 -1px 2px rgba(148, 163, 184, 0.1);
+  }
+}
+
+/* Custom scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f5f9;
+  background: rgba(241, 245, 249, 0.8);
 }
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
